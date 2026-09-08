@@ -65,6 +65,18 @@ docker compose logs --tail=100 app
 
 Caddy 根据域名申请 HTTPS 证书。Compose 自动将 `APP_ORIGIN` 设为该 HTTPS 域名，Cookie 自动启用 Secure。后续代码更新后执行 `docker compose up -d --build`。
 
+### 已配置的生产更新流程
+
+生产服务器的 `/opt/edu` 已跟踪私有仓库 `fyre1998/edu` 的 `main` 分支，并使用只读 Deploy Key 拉取代码。数据库、上传文件与 `.env` 不会进入 GitHub，也不会在更新时被覆盖。
+
+在 GitHub 的 `main` 更新后，登录 VPS 并执行：
+
+```bash
+/usr/local/sbin/edu-deploy
+```
+
+该命令只接受可快进的 Git 更新，重新构建应用容器并重启 Caddy 载入可能变更的配置。正常的开发顺序为：本地修改和测试 → 提交并推送到 GitHub `main` → 在 VPS 执行上述命令。
+
 本地 SQLite 数据不会自动迁移至 VPS 的 PostgreSQL。若要携带本地账号和记录，应在正式使用前另做迁移，不能简单复制 SQLite 文件到 PostgreSQL 卷中。
 
 ## 备份与恢复
@@ -101,3 +113,4 @@ python -m pytest tests -q
 浏览器支持 WebMCP 时，页面提供只读的 `list_my_notes` 工具，沿用当前登录账号权限。当前环境未做 WebMCP 实际调用验收；普通页面功能不依赖该接口。
 
 实现参考：[FastAPI 文件上传](https://fastapi.tiangolo.com/tutorial/request-files/)、[SQLAlchemy 会话管理](https://docs.sqlalchemy.org/en/20/orm/session_basics.html)。
+

@@ -112,7 +112,8 @@ async def protection(request, call_next):
         if request.headers.get('x-workbench') != '1':
             return JSONResponse({'detail': '缺少请求校验标记'}, 403)
         # Bound the body before multipart parsing can spool it to disk.
-        limit = 11 * 1024 * 1024 if request.url.path == '/api/files' else 512 * 1024
+        limit = (21 * 1024 * 1024 if request.url.path == '/api/classroom/files'
+                 else 11 * 1024 * 1024 if request.url.path == '/api/files' else 512 * 1024)
         body = bytearray()
         async for chunk in request.stream():
             if len(body) + len(chunk) > limit:
@@ -123,6 +124,8 @@ async def protection(request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'same-origin'
     response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    if request.url.path.startswith('/classroom'):
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     if request.url.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-store'
     return response
@@ -302,6 +305,31 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
 
 
+async def call_ai(messages):
+    key, model = os.getenv('AI_API_KEY'), os.getenv('AI_MODEL')
+    if not key or not model:
+        raise HTTPException(503, 'AI 尚未配置，请联系教师或管理员')
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            upstream = await client.post(os.getenv('AI_BASE_URL', 'https://openrouter.ai/api/v1').rstrip('/') + '/chat/completions',
+                headers={'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
+                json={'model': model, 'messages': messages, 'max_tokens': 2000})
+            upstream.raise_for_status()
+            answer = upstream.json()['choices'][0]['message']['content']
+            if not isinstance(answer, str) or not answer.strip():
+                raise ValueError('empty answer')
+            return answer
+    except httpx.HTTPStatusError as error:
+        detail = {401: 'AI 服务密钥无效，请联系管理员', 402: 'AI 服务余额不足，请联系管理员',
+                  403: 'AI 服务拒绝访问，请联系管理员检查权限', 404: 'AI 模型不可用，请联系管理员检查模型配置',
+                  429: 'AI 服务繁忙，请稍后重试'}.get(error.response.status_code, 'AI 服务暂时无法响应，请稍后重试')
+        raise HTTPException(502, detail) from None
+    except httpx.TimeoutException:
+        raise HTTPException(504, 'AI 回复超时，请稍后重试') from None
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
+        raise HTTPException(502, 'AI 服务暂时无法响应，请稍后重试') from None
+
+
 @app.get('/api/chats')
 def chats(user=Depends(current_user), session: Session = Depends(db)):
     return session.scalars(select(Chat).where(Chat.user_id == user.id).order_by(Chat.id.desc()).limit(50)).all()[::-1]
@@ -318,16 +346,7 @@ async def ask(body: ChatInput, user=Depends(current_user), session: Session = De
     for item in history:
         messages.extend([{'role': 'user', 'content': item.question}, {'role': 'assistant', 'content': item.answer[:12000]}])
     messages.append({'role': 'user', 'content': body.message})
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            upstream = await client.post(os.getenv('AI_BASE_URL', 'https://api.openai.com/v1').rstrip('/') + '/chat/completions',
-                headers={'Authorization': 'Bearer ' + key}, json={'model': model, 'messages': messages, 'max_tokens': 2000})
-            upstream.raise_for_status()
-            answer = upstream.json()['choices'][0]['message']['content']
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError('empty answer')
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
-        raise HTTPException(502, 'AI 服务暂时无法响应，请检查服务配置或稍后重试')
+    answer = await call_ai(messages)
     record = Chat(user_id=user.id, question=body.message, answer=answer)
     session.add(record)
     session.commit()
@@ -340,4 +359,8 @@ def health(session: Session = Depends(db)):
     return {'ok': True}
 
 
+from .classroom import build_router
+
+app.include_router(build_router(Base, db, digest, rate_limit, call_ai, SECURE, UPLOADS))
+app.mount('/classroom', StaticFiles(directory=ROOT / 'classroom-ai-prototype', html=True), name='classroom')
 app.mount('/', StaticFiles(directory=ROOT / 'frontend', html=True), name='frontend')

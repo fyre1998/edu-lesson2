@@ -6,9 +6,11 @@ services:
       DATABASE_URL: postgresql+psycopg://workbench:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/workbench
       APP_ORIGIN: https://${DOMAIN:?Set DOMAIN in .env}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
-      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
+      CLASSROOM_CODE: ${CLASSROOM_CODE:-BIO-302}
+      CLASSROOM_TEACHER_PASSWORD: ${CLASSROOM_TEACHER_PASSWORD:-}
       DATA_DIR: /app/data
     volumes:
       - uploads:/app/data

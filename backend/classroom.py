@@ -21,7 +21,7 @@ ROSTER = [
     ['林小雨', '陈思远', '周可欣', '蒋子墨'], ['吴思齐', '郑安然', '冯嘉树', '何若琳'],
     ['孔令仪', '曹煜城', '严舒宁', '华景行'], ['金悦', '魏承泽', '陶乐然', '姜予安'],
 ]
-TEACHERS = ['沈老师', '王老师']
+TEACHERS = ['赵老师', '王老师']
 EXTENSIONS = {'.pdf', '.doc', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp'}
 MAX_AI_IMAGES = 4
 MAX_AI_IMAGE_BYTES = 20 * 1024 * 1024
@@ -87,6 +87,9 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
         record = session.get(ClassroomSession, digest(request.cookies.get('classroom_session', '')))
         if not record or record.expires <= time.time():
             raise HTTPException(401, '请先登录课堂')
+        if record.role == 'teacher' and record.name == '沈老师':
+            record.name = '赵老师'
+            session.commit()
         return record
 
     def public_identity(user):

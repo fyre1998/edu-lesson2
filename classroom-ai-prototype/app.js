@@ -65,7 +65,7 @@ function setRole(nextRole) {
   els.placeholderView.classList.add('hidden');
   els.pageTitle.textContent = teacher ? '课堂观察台' : '细胞为什么需要呼吸？';
   els.roleToggle.textContent = teacher ? '返回学生视图' : '切换教师视图';
-  els.profileName.textContent = teacher ? '沈老师' : '林小雨';
+  els.profileName.textContent = teacher ? '赵老师' : '林小雨';
   els.profileRole.textContent = teacher ? '生物教师 · 主讲' : '第 3 组 · 学生';
   document.querySelector('.profile-button .avatar').textContent = teacher ? '沈' : '林';
   document.querySelector('.profile-button .avatar').classList.toggle('avatar-student', !teacher);

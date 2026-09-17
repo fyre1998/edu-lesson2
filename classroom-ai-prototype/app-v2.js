@@ -4,7 +4,7 @@ const groups = [
   ['孔令仪', '曹煜城', '严舒宁', '华景行'], ['金悦', '魏承泽', '陶乐然', '姜予安']
 ].map((members, index) => ({ id: index + 1, members, files: [], chat: [], status: 'attention', statusText: '尚未提问' }));
 
-const teachers = ['沈老师', '王老师'];
+const teachers = ['赵老师', '王老师'];
 const memberRoles = ['记录员', '实验员', '汇报员', '提问者'];
 const avatarColors = ['coral', 'mint', 'blue', 'gold'];
 let currentUser = null;

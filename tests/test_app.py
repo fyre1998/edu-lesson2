@@ -155,7 +155,7 @@ def test_expired_session(env):
 def classroom_login(client, group=1, teacher=False, password='teacher-test-password'):
     names = {1: '王晓彤', 2: '孙语桐'}
     return client.post('/api/classroom/login', json={
-        'role': 'teacher' if teacher else 'student', 'name': '沈老师' if teacher else names[group],
+        'role': 'teacher' if teacher else 'student', 'name': '赵老师' if teacher else names[group],
         'groupId': None if teacher else group, 'code': 'BIO-302', 'teacherPassword': password,
     })
 

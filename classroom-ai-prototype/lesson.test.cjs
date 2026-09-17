@@ -6,12 +6,13 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'u
 
 function setup(){
   const elements=new Map(), local=new Map(), calls=[];
-  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){}},insertAdjacentHTML(){}});return elements.get(s);};
+  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
     FormData,setTimeout:()=>1,clearTimeout(){},crypto:require('node:crypto').webcrypto,
     sessionStorage:{setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k),getItem:k=>local.get(k)},
     fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
+  vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
   return{calls,fields,local,el,run:code=>vm.runInContext(code,context)};
@@ -43,4 +44,15 @@ test('delayed refresh cannot replace a newer saved revision',async()=>{
   const a=setup();a.run('S.edit=S.savedEdit=0');const refresh=a.run('refreshWork(false)');
   a.run('S.work.work.revision=3');a.calls[0].reply({work:{revision:1},files:[],versions:[]});await refresh;
   assert.equal(a.run('S.work.work.revision'),3);
+});
+test('teacher switching groups ignores a late response for the previous group',async()=>{
+  const a=setup();a.run("S.user={role:'teacher'};S.group=7");const refresh=a.run('refreshWork(false)');
+  a.run('S.group=8;S.work.work.revision=8');a.calls[0].reply({work:{revision:7},files:[],versions:[]});await refresh;
+  assert.equal(a.run('S.work.work.revision'),8);
+});
+test('initial guide is brought into view even when materials are longer than the window',()=>{
+  const a=setup();a.el('#conversationScroll').scrollHeight=1200;
+  a.run("S.content.opener='本环节第一轮问题';S.content.content.prompts=[];renderChat()");
+  assert.equal(a.el('#conversationScroll').scrollTop,1200);
+  assert.match(a.el('#chatMessages').innerHTML,/本环节第一轮问题/);
 });

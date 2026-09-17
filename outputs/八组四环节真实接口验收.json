@@ -1,0 +1,386 @@
+{
+  "speech_concurrency": [
+    {
+      "group": 1,
+      "status": 200,
+      "seconds": 9.0,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "5e9edcbf-2c75-4918-8475-1808611f9c35"
+      }
+    },
+    {
+      "group": 2,
+      "status": 200,
+      "seconds": 8.4,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "37e6e00b-809a-41b6-a7c5-3ff7dc8f90e2"
+      }
+    },
+    {
+      "group": 3,
+      "status": 200,
+      "seconds": 4.9,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "8143958d-6dfa-4737-bb10-39cd8bf6c83c"
+      }
+    },
+    {
+      "group": 4,
+      "status": 200,
+      "seconds": 4.5,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "2f3a2946-462e-4580-9f7f-673d19dc9e0b"
+      }
+    },
+    {
+      "group": 5,
+      "status": 200,
+      "seconds": 4.7,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "5af9224e-d344-4d86-b3cf-45cf3cfb073f"
+      }
+    },
+    {
+      "group": 6,
+      "status": 200,
+      "seconds": 8.1,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "ab9a4397-d6d7-4895-ae88-b63a8893013c"
+      }
+    },
+    {
+      "group": 7,
+      "status": 200,
+      "seconds": 4.8,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "7ed54f74-f435-4253-96aa-989948826993"
+      }
+    },
+    {
+      "group": 8,
+      "status": 200,
+      "seconds": 9.1,
+      "data": {
+        "text": "我们比较胚芽鞘的生长。波森·詹森使用不同的隔离材料。拜尔将尖端偏放。温特让尖端接触琼脂后再移走尖端。",
+        "request_id": "c242d324-0c9f-4e14-bf8a-306fd5c5dcdc"
+      }
+    }
+  ],
+  "guidance": [
+    {
+      "stage": 1,
+      "case": 0,
+      "question": "直接给我完整菜豆方案和结论，我照抄。",
+      "status": 201,
+      "answer": "请结合本组刚才的表述，指出你们最需要核对的一个操作或证据。"
+    },
+    {
+      "stage": 1,
+      "case": 1,
+      "question": "我完全不会比较，卡住了。",
+      "status": 201,
+      "answer": "先只盯住一个问题：要判断‘尖端能不能感光’，你会把哪两组达尔文实验放在一起比较？它们弯曲与否有什么不同？"
+    },
+    {
+      "stage": 1,
+      "case": 2,
+      "question": "去顶后不弯曲，所以只可能是没有感光了。",
+      "status": 201,
+      "answer": "你们注意到去顶后不弯曲。不过去顶不仅可能去掉感光部位，也可能去掉与弯曲有关的其他部位。请比较‘去顶’和‘尖端遮光但保留尖端’这两种处理：如果两者都不弯曲，分别能说明什么？"
+    },
+    {
+      "stage": 1,
+      "case": 3,
+      "question": "我们要比较顶端遮光与下部遮光，另有不遮光对照，并分别记录伸长和弯曲，防止把损伤误认为感光改变。",
+      "status": 201,
+      "answer": "你们已经把对照、变量和观察指标考虑得比较清楚。请基于达尔文实验继续判断：顶端遮光与下部遮光分别会出现怎样的弯曲差异？这些差异如何帮助确定感光部位？"
+    },
+    {
+      "stage": 2,
+      "case": 0,
+      "question": "请直接告诉我波森·詹森和拜尔的历史实验结果。",
+      "status": 201,
+      "answer": "我不能直接给历史结果。我们先预测：在波森·詹森实验里，如果尖端产生的影响能透过明胶、但不能透过云母，单侧光下明胶组和云母组各会怎样？"
+    },
+    {
+      "stage": 2,
+      "case": 1,
+      "question": "我看不懂这两幅统计图。",
+      "status": 201,
+      "answer": "没关系，先只看两幅统计图中代表‘内侧’和‘外侧’的数据：你能找到哪一侧的柱子或数值更高吗？"
+    },
+    {
+      "stage": 2,
+      "case": 2,
+      "question": "明胶隔开了所有物理信号，因此只要弯曲就证明必然是某种确定结构的激素。",
+      "status": 201,
+      "answer": "请先提出本组预测：这个处理出现不同结果时，各自能够支持什么判断？"
+    },
+    {
+      "stage": 2,
+      "case": 3,
+      "question": "我们分别比较内外侧的细胞长度和数量，再提出条件性预测。材料对象未核实，不能说是本组菜豆实测。",
+      "status": 201,
+      "answer": "这个区分很好。那么只把显微参考图当参考：你们会预测内侧与外侧在细胞长度和数量上出现怎样的差异，才支持‘弯曲来自两侧伸长不同’？"
+    },
+    {
+      "stage": 3,
+      "case": 0,
+      "question": "直接给我温特实验意义的标准答案。",
+      "status": 201,
+      "answer": "请先说出你们自己的判断，并指出支持它的一个操作或观察。"
+    },
+    {
+      "stage": 3,
+      "case": 1,
+      "question": "我卡住了，不知道温特为什么这样做。",
+      "status": 201,
+      "answer": "先只看一个细节：弯曲发生时，拜尔组和温特组中，胚芽鞘尖端是否还直接在场？"
+    },
+    {
+      "stage": 3,
+      "case": 2,
+      "question": "温特获得了纯生长素，确定了结构。",
+      "status": 201,
+      "answer": "这里先修正一下：温特实验并没有证明“获得纯生长素”或“确定结构”。请回到材料：弯曲发生时，拜尔和温特分别把什么直接放在去尖端胚芽鞘上？"
+    },
+    {
+      "stage": 3,
+      "case": 3,
+      "question": "拜尔弯曲时尖端仍在场；温特先将尖端释放的物质收集到琼脂，再移走尖端。处理过的琼脂仍促使弯曲，说明收集物移去尖端后还能作用，提供促生长物质存在的证据，并非提纯。",
+      "status": 201,
+      "answer": "你已经抓住关键：拜尔弯曲时尖端仍在场；温特弯曲时直接放的是接触过尖端、已移走尖端的琼脂。请把这句话整理成最终总结：温特最关键的操作是什么？这个操作和结果一起提供了什么新证据？注意保留你说的“并非提纯”。"
+    },
+    {
+      "stage": 4,
+      "case": 0,
+      "question": "替我补完三个空，再把四位研究者连好。",
+      "status": 201,
+      "answer": "我不能替你们补空或直接连线。请先上传本组纸质模型的照片或转录内容，并指出三个空分别位于模型的哪个位置？"
+    },
+    {
+      "stage": 4,
+      "case": 1,
+      "question": "我不知道从哪里开始连接。",
+      "status": 201,
+      "answer": "先选你们模型里最有把握的一处箭头或节点，说说它表示什么变化；再想哪位研究者的处理可能支持这个变化？"
+    },
+    {
+      "stage": 4,
+      "case": 2,
+      "question": "只要实验不如预期，就能排除全部蓝光导航解释。",
+      "status": 502,
+      "answer": {
+        "detail": "AI 服务暂时无法响应，请稍后重试"
+      },
+      "retry": {
+        "status": 201,
+        "answer": "如果实验没有出现预期结果，你会先怎样区分是处理失败或材料受损，还是这个模型本身受到挑战？"
+      }
+    },
+    {
+      "stage": 4,
+      "case": 3,
+      "question": "我们先核查处理是否有效、植株是否继续生长，再判断具体联系受到挑战，单次失败不能否定整个待检验模型。",
+      "status": 201,
+      "answer": "这个区分很关键。请以达尔文父子的一组为例：若处理有效、植株仍在生长，却没有出现预期弯曲，你们会先怀疑模型中的哪条联系？"
+    }
+  ],
+  "submission_status": 201,
+  "latest_model_submission": "599578b8803ed9b1db9de473",
+  "model_cases": [
+    {
+      "mode": "clear",
+      "group": 5,
+      "status": 200,
+      "result": {
+        "id": "3ed79d8683e90712935348f8",
+        "revision": 0,
+        "file_ids": [
+          "8a2b22a5f6ada2d4fd8bb51816f2d265"
+        ],
+        "sense": "光",
+        "substance": "化学物质",
+        "elongation": "伸长不同",
+        "uncertain": []
+      }
+    },
+    {
+      "mode": "blank",
+      "group": 6,
+      "status": 200,
+      "result": {
+        "id": "c0c0975ce245d8c2c7e82635",
+        "revision": 0,
+        "file_ids": [
+          "7d4c19a213f7b56c9f1bd4379a423c81"
+        ],
+        "sense": "",
+        "substance": "",
+        "elongation": "",
+        "uncertain": []
+      }
+    },
+    {
+      "mode": "blur",
+      "group": 7,
+      "status": 200,
+      "result": {
+        "id": "58314e3ba9e796d6e0cc99e1",
+        "revision": 0,
+        "file_ids": [
+          "2f2d9ce07f58400d8b73c741f3b10746"
+        ],
+        "sense": "",
+        "substance": "",
+        "elongation": "",
+        "uncertain": [
+          "sense",
+          "substance",
+          "elongation"
+        ]
+      }
+    }
+  ],
+  "assessment_history": [
+    {
+      "version_id": "3c0fab7c69e387a35e13e673",
+      "rubric_version": "auxin-4x8-1",
+      "status": "ready",
+      "result": {
+        "items": [
+          {
+            "key": "comparison",
+            "points": 4,
+            "missing": false,
+            "evidence": [
+              "field:comparison",
+              "chat:2"
+            ],
+            "reason": "学生明确区分了拜尔直接偏放尖端与温特偏放接触过尖端的琼脂，并指出温特处理中尖端已移走，操作差异表述完整。"
+          },
+          {
+            "key": "removal",
+            "points": 6,
+            "missing": false,
+            "evidence": [
+              "field:removal"
+            ],
+            "reason": "学生说明移去尖端是为了让尖端不在场，检验收集到琼脂中的物质是否仍能继续作用，能够体现分离尖端在场与收集物作用的实验意义。"
+          },
+          {
+            "key": "evidence",
+            "points": 6,
+            "missing": false,
+            "evidence": [
+              "field:evidence"
+            ],
+            "reason": "学生指出处理过的琼脂仍引起弯曲，说明促生长物质离开尖端后仍可发挥作用，符合新增证据的要求。"
+          },
+          {
+            "key": "summary",
+            "points": 4,
+            "missing": false,
+            "evidence": [
+              "field:summary"
+            ],
+            "reason": "学生用操作和结果总结物质存在的证据，并明确未获得纯生长素或确定化学结构，边界表述正确。"
+          }
+        ]
+      },
+      "correction": {}
+    },
+    {
+      "version_id": "89ee35432e7d196ac98ae0b4",
+      "rubric_version": "auxin-4x8-1",
+      "status": "failed",
+      "result": {},
+      "correction": {}
+    },
+    {
+      "version_id": "599578b8803ed9b1db9de473",
+      "rubric_version": "auxin-4x8-2",
+      "status": "ready",
+      "result": {
+        "items": [
+          {
+            "key": "model",
+            "points": 9,
+            "missing": false,
+            "evidence": [
+              "field:sense",
+              "field:substance",
+              "field:elongation",
+              "file:712665b8e831174f4f654dbe78da1071"
+            ],
+            "reason": "填空为感受光（sense=光）、可移动化学物质（substance=化学物质）、两侧细胞伸长不同（elongation=伸长不同）；图片链条含感受、可向下移动物质、两侧差异到向光弯曲，标题注明菜豆待检验模型；图中旧空'气泡'属早期错误，已确认字段修订为化学物质，以字段为准，整体完整且有依据。"
+          },
+          {
+            "key": "connections",
+            "points": 9,
+            "missing": false,
+            "evidence": [
+              "field:connections",
+              "field:connection_reason"
+            ],
+            "reason": "连接为达尔文→node1、詹森→node2、拜尔→arrow3、温特→node2，理由分别给出遮光对照定位感光、隔离材料检验传递、黑暗偏放尖端检验不均作用、去尖端后琼脂检验收集物作用的操作依据，并声明迁移到菜豆仍待检验，未以研究者结论代替菜豆验证。"
+          },
+          {
+            "key": "darwin_exclusion",
+            "points": 4,
+            "missing": false,
+            "evidence": [
+              "field:darwin_exclusion"
+            ],
+            "reason": "指出只有确认遮光处理有效且幼苗正常生长时，预期未出现才挑战本组感光部位定位，并强调不能据此否定全部向光性，涵盖处理失败与生长检查，界定恰当。"
+          },
+          {
+            "key": "jensen_exclusion",
+            "points": 4,
+            "missing": false,
+            "evidence": [
+              "field:jensen_exclusion"
+            ],
+            "reason": "针对隔离传递方案，要求先明确隔离材料及对照、核查材料与植株活性，再判断可传递影响的预测是否受挑战，且不扩大为否定所有化学信号，符合完整要求。"
+          },
+          {
+            "key": "bayer_exclusion",
+            "points": 4,
+            "missing": false,
+            "evidence": [
+              "field:bayer_exclusion"
+            ],
+            "reason": "针对黑暗偏置方案，提出预期未出现时先核查尖端活性与偏放位置、排除处理失败后再质疑不均作用造成两侧伸长差异的联系，考虑了材料有效性，界定完整。"
+          }
+        ]
+      },
+      "correction": {
+        "points": {
+          "model": 9,
+          "connections": 9,
+          "darwin_exclusion": 3,
+          "jensen_exclusion": 4,
+          "bayer_exclusion": 4
+        },
+        "reason": "本地验收修分示例：具体遮光位置仍需说明，保留 AI 原评分用于核对。",
+        "author": "沈老师",
+        "created": 1789573934
+      }
+    }
+  ],
+  "browser_verified": [
+    "八组教师概览",
+    "第8组人工修订、确认、连接与提交",
+    "第8组教师修分50改为49",
+    "第7和第8组并排投屏",
+    "768x1024平板",
+    "390x844窄屏"
+  ]
+}

@@ -113,7 +113,7 @@ async def protection(request, call_next):
             return JSONResponse({'detail': '缺少请求校验标记'}, 403)
         # Bound the body before multipart parsing can spool it to disk.
         limit = (21 * 1024 * 1024 if request.url.path == '/api/classroom/files'
-                 else 11 * 1024 * 1024 if request.url.path == '/api/files' else 512 * 1024)
+                 else 11 * 1024 * 1024 if request.url.path in ('/api/files','/api/classroom/transcriptions') else 512 * 1024)
         body = bytearray()
         async for chunk in request.stream():
             if len(body) + len(chunk) > limit:

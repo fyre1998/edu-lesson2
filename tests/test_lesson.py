@@ -13,7 +13,7 @@ def start(client, monkeypatch, stage=1):
     monkeypatch.setenv('CLASSROOM_CODE', 'BIO-302')
     monkeypatch.setenv('CLASSROOM_TEACHER_PASSWORD', 'teacher-test-password')
     assert classroom_login(client, teacher=True).status_code == 200
-    r = client.post('/api/classroom/lessons', json={'title': '教学验收'})
+    r = client.post('/api/classroom/lessons', json={'title': '教学验收', 'flow_version': 1})
     assert r.status_code == 201, r.text
     lid = r.json()['id']
     if stage > 1:

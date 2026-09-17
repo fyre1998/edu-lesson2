@@ -9,3 +9,99 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 
 .material-figure img{max-height:300px;object-fit:contain}.teacher-materials .material-figure img{max-height:240px}
 .comparison .assignment{padding:14px;margin:12px 0}.comparison .assignment img{height:220px;object-fit:contain}.comparison .assignment p{font-size:.87rem;margin:7px 0}.comparison dl{margin-top:14px}.comparison dd{margin-bottom:14px}
+
+/* The conversation is the permanent classroom surface; work scrolls separately. */
+.main-grid.with-ai{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(310px,1fr);gap:22px;align-items:start}
+.main-grid.with-ai #aiPanel{order:0;position:sticky;top:16px;right:auto;bottom:auto;width:auto;height:calc(100dvh - 32px);max-height:900px;z-index:auto;box-shadow:0 5px 25px #19364d09;padding:22px}
+.main-grid.with-ai #workspace{order:1;min-width:0}
+.main-grid.with-ai .student-grid{display:block}
+#conversationScroll{overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:140px;padding-right:6px;scrollbar-width:thin}
+.ai-panel #chatMessages{overflow:visible;max-height:none;min-height:0;flex:none}
+.material-panel{border-bottom:1px solid var(--line);margin-bottom:22px;padding-bottom:8px}
+.material-panel .panel-heading h2{font-size:.9rem;color:var(--muted)}
+.material-title{font-size:1.07rem}.material-figure img{max-height:270px}.material-text{font-size:.87rem}
+.ai-panel .ai-notice{margin-bottom:14px;padding:9px 12px;font-size:.78rem}
+.ai-panel textarea{height:72px;min-height:60px;max-height:150px}
+.voice-controls{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}
+.voice-controls button,.field-mic{font-size:.78rem;min-height:33px;padding:5px 10px}
+#voiceStart{background:#eaf4ee;color:#24674d;border-color:#d0e6d8}#voiceStop{background:#a63e37;color:white;border-color:#a63e37}
+#voiceStatus{font-size:.74rem;color:var(--muted);flex:1;min-width:100px}.field-mic{margin-top:6px;color:var(--blue)}
+.activity-receipt{font-size:.75rem;color:var(--muted);border-left:2px solid #a8c7b6;padding:5px 10px;margin:8px 0}
+.opener{border-left:3px solid #799dcc;padding-left:14px}.quick-prompts{margin:8px 0}.quick-prompts button{font-size:.73rem}
+.student-score{margin-bottom:12px}.student-score:empty{display:none}.score-heading{display:flex;gap:12px;justify-content:space-between;align-items:center;padding:10px 0}.score-heading strong{font-size:1.15rem}
+.score-stage{border-bottom:1px solid var(--line)}.score-stage summary{font-size:.8rem}.score-item{display:grid;grid-template-columns:1fr auto;gap:4px 8px;font-size:.8rem;padding:7px 0}.score-item p,.score-item small{grid-column:1/-1;margin:0}.score-item small{overflow-wrap:anywhere}
+.group-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.group-score{width:100%;display:flex;align-items:baseline;gap:6px;font-size:1.7rem;font-weight:650}.group-score span{margin-left:auto;font-size:.75rem;font-weight:400;color:var(--muted)}
+.stage-dots{display:flex;gap:5px;flex-wrap:wrap;font-size:.72rem;margin:8px 0 14px}.stage-dots span{background:var(--soft);padding:3px 7px;border-radius:5px}
+.model-diagram{margin:20px 0;display:flex;flex-direction:column;align-items:center;gap:2px}.model-node{padding:13px 12px;background:#f4f7fc;border:1px solid #cfdceb;border-radius:10px;width:100%;text-align:center;font-size:.88rem;overflow-wrap:anywhere}
+.model-arrow{min-height:36px;text-align:center;color:var(--muted);width:100%;font-size:1.15rem}.model-arrow[data-target],.model-node[data-target]{cursor:pointer}.model-node[data-target]:hover,.model-arrow[data-target]:hover{outline:2px dashed #7296c5;background:#edf4ff}
+.scientist-tray{display:flex;gap:7px;flex-wrap:wrap;margin:15px 0}.scientist-tray button{font-size:.8rem;border-color:#aabed7;background:#f7faff;cursor:grab}.scientist-tray button[aria-pressed=true]{background:var(--blue);color:white}
+.model-tag{display:inline-flex;gap:5px;align-items:center;background:#dfeafb;color:#244975;border-radius:6px;font-size:.73rem;padding:3px 7px;margin:4px}.model-tag button{border:0;background:transparent;padding:0 2px;min-height:20px;font-size:1rem}
+#modelTools{margin:20px 0;border-top:1px solid var(--line);padding-top:20px}#modelTools>.actions button{font-size:.78rem}
+#historyBody pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.85rem}#teacherScore{margin-bottom:22px}
+@media(min-width:1400px){.main-grid.with-ai{grid-template-columns:minmax(0,1.45fr) minmax(380px,1fr)}.main-grid.with-ai #aiPanel{top:14px}}
+@media(max-width:1100px){.main-grid.with-ai{grid-template-columns:minmax(0,1.2fr) minmax(270px,1fr);gap:14px}.main-grid.with-ai #aiPanel{padding:15px}.group-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.work-panel{padding:15px}}
+@media(max-width:820px){.app{grid-template-columns:125px minmax(0,1fr)}.main-grid.with-ai{grid-template-columns:1fr}.main-grid.with-ai #aiPanel{position:sticky;top:8px;height:62dvh;min-height:390px;z-index:5;max-height:670px}.main-grid.with-ai #workspace{position:relative}.lesson-heading{padding:15px 0}.lesson-heading h1{font-size:1.3rem}.lesson-heading p{font-size:.82rem;margin-bottom:5px}.ai-notice{display:none}.material-panel .panel-heading{display:none}}
+@media(max-width:580px){.app{display:block}.sidebar{height:auto}.main-grid.with-ai #aiPanel{top:0;height:62dvh;min-height:360px;padding:12px;box-shadow:0 8px 20px #19364d14}.ai-panel .panel-heading h2{font-size:1rem;margin-bottom:2px}.ai-panel textarea{min-height:48px}.voice-controls button{min-height:30px}.main-grid.with-ai{gap:15px}.topbar{min-height:44px}.topbar .fine{display:none}.material-figure img{max-height:190px}.group-card{min-height:170px}.score-heading{align-items:start;flex-wrap:wrap}}
+
+.student-view.app{height:100dvh;min-height:0;overflow:hidden}
+.student-view main{height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:16px;min-width:0}
+.student-view .topbar,.student-view .lesson-heading{flex:none}
+.student-view #lessonSurface{flex:1;min-height:0;display:flex;flex-direction:column}
+.student-view .lesson-heading{padding:16px 0}.student-view .lesson-heading h1{font-size:1.65rem}.student-view .lesson-heading p{margin-bottom:6px;font-size:.84rem}
+.student-view .main-grid.with-ai{flex:1;min-height:0;align-items:stretch}
+.student-view .main-grid.with-ai #aiPanel{position:relative;top:auto;height:100%;min-height:0;max-height:none}
+.student-view #workspace{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.student-view .work-panel{min-height:100%}
+.student-view #conversationScroll{min-height:60px}
+@media(max-width:820px){.student-view .main-grid.with-ai{grid-template-rows:minmax(285px,60%) minmax(0,1fr);gap:10px}.student-view .lesson-heading h1{font-size:1.25rem}.student-view .lesson-heading{padding:8px 0}.student-view #aiPanel .panel-heading{margin-bottom:4px}.student-view .conversation-tools{margin:5px 0}.student-view .quick-prompts{display:none}.student-view #conversationScroll{min-height:30px}.student-view .student-score{margin-bottom:8px}}
+@media(max-width:580px){.student-view.app{display:flex;flex-direction:column}.student-view main{flex:1;min-height:0;height:auto;padding-bottom:8px}.student-view .sidebar{flex:none;padding:8px 12px;gap:5px}.student-view .sidebar nav{margin:0}.student-view .sidebar>select{display:none}.student-view .side-bottom{padding-top:3px}.student-view .stage-button{padding:5px 2px;flex-basis:90px}.student-view .stage-button small{display:none}.student-view .topbar{min-height:36px;padding:3px 0}.student-view .lesson-heading .eyebrow{display:none}.student-view #taskText{font-size:.72rem}.student-view .main-grid.with-ai{grid-template-rows:minmax(280px,65%) minmax(0,1fr)}.student-view #aiPanel .panel-heading .fine{display:none}}
+@media(max-width:820px){.student-view #chatInput{height:56px;min-height:48px;max-height:100px}}
+.material-figure[data-material-id="jensen"] img,.material-figure[data-material-id="bayer"] img{max-height:none}
+
+/* Keep the reading area tall by sharing one toolbar for all input methods. */
+.lesson-heading h1{margin-bottom:0}
+.student-view .topbar{height:52px}
+.student-view .lesson-heading{padding:12px 0}
+.student-view #aiPanel> .panel-heading{flex:none;margin-bottom:12px}
+.student-view #chatForm,.student-view #quickPrompts,.student-view #chatAttachments{flex:none}
+#chatAttachments{max-height:92px;overflow-y:auto}
+#chatInput{display:block;height:64px;min-height:56px}
+.chat-toolbar{gap:6px;margin-top:8px}
+.chat-toolbar button{font-size:.76rem;padding:5px 8px;white-space:nowrap}
+.chat-toolbar #chatSubmit{color:var(--blue)}
+.chat-toolbar #sendButton{margin-left:auto;padding-inline:14px}
+.chat-feedback{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:5px;line-height:1.5}
+.chat-feedback #voiceStatus{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
+.chat-feedback #chatStatus{font-size:.72rem}
+.chat-feedback span:empty{display:none}
+@media(max-width:820px){.student-view .main-grid.with-ai{grid-template-rows:minmax(300px,74%) minmax(0,1fr)}.student-view .lesson-heading{padding:8px 0}.student-view #aiPanel>.panel-heading{margin-bottom:8px}.chat-toolbar{gap:5px}.chat-toolbar button{padding:5px 7px}}
+@media(max-width:580px){.student-view .topbar{height:36px}.student-view .main-grid.with-ai{grid-template-rows:minmax(300px,78%) minmax(0,1fr)}}
+
+/* Course resources stay above both work areas and open without shrinking them. */
+.lesson-materials{position:relative;flex:none;background:white;border:1px solid var(--line);border-radius:10px;margin-top:12px;z-index:20}
+.lesson-materials>summary{padding:10px 15px;color:var(--blue)}
+.lesson-materials>summary .fine{float:right;font-weight:400;margin-left:12px}
+.materials-content{position:absolute;top:calc(100% + 6px);left:0;right:0;max-height:65dvh;overflow:auto;padding:20px;background:white;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px #19364d26}
+.materials-content .material-figure{max-width:800px;margin-inline:auto}
+.submission-task{font-size:.86rem;color:var(--muted);line-height:1.8;margin-bottom:22px}
+.location-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+.location-fields>.work-field:not(.short-field),.location-fields>#modelTools{grid-column:1/-1}
+.short-field input{border:0;border-bottom:1px solid #9cafc3;border-radius:0;padding:6px 3px;background:#f9fbfe}
+#modelTools{border-top:0;padding-top:0;margin:0}
+.model-step{padding:0 0 20px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.model-step h3{display:flex;align-items:center;gap:8px;font-size:.94rem;margin-bottom:10px}
+.model-step h3>span{display:inline-grid;place-items:center;width:25px;height:25px;background:var(--soft);color:var(--blue);border-radius:50%;flex:none}
+.model-step h3 small{margin-left:auto;color:var(--green)}
+.step-locked{color:var(--muted)}
+.uploaded-model,.uploaded-answer{margin:16px 0}
+.uploaded-model img,.uploaded-answer img{display:block;width:100%;height:auto;border-radius:8px}
+.uploaded-model figcaption,.uploaded-answer figcaption{margin-top:6px;text-align:right}
+.uploaded-model figcaption button,.uploaded-answer figcaption button{font-size:.75rem;min-height:30px;padding:3px 8px}
+.picture-board{position:relative;border:1px solid var(--line);border-radius:8px;margin-block:18px}
+.picture-board[data-picture-board]{cursor:crosshair}
+.picture-name{position:absolute;transform:translate(-50%,-50%);background:#ecf4ffed;color:#194a86;border:1px solid #729bd0;border-radius:6px;padding:3px 6px;display:flex;align-items:center;gap:4px;font-size:.75rem;white-space:nowrap;box-shadow:0 2px 5px #19364d22}
+.picture-name button{padding:0;min-height:22px;width:20px;line-height:1;border:0;background:transparent}
+.picture-cursor{position:absolute;transform:translate(-50%,-50%);color:#d33;font-size:24px;pointer-events:none}
+.answer-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.upload-empty{padding:20px;margin-top:12px;border:1px dashed #c8d6e4;border-radius:8px;text-align:center;color:var(--muted);font-size:.85rem}
+@media(max-width:580px){.location-fields{grid-template-columns:1fr}.materials-content{padding:14px;max-height:60dvh}.lesson-materials{margin-top:6px}.lesson-materials>summary{padding:7px 12px}}

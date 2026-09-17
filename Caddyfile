@@ -1,9 +1,18 @@
 {$DOMAIN} {
     encode zstd gzip
-    request_body {
-        max_size 11MB
+    @classroom_files path /api/classroom/files
+    handle @classroom_files {
+        request_body {
+            max_size 21MB
+        }
+        reverse_proxy app:8000
     }
-    reverse_proxy app:8000
+    handle {
+        request_body {
+            max_size 11MB
+        }
+        reverse_proxy app:8000
+    }
 }
 
 www.{$DOMAIN} {

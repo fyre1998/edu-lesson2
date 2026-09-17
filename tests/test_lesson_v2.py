@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -114,6 +115,72 @@ def test_stage_gates_prompts_and_chat_deduplication(env,monkeypatch):
     prompt=calls[-1][1]['messages'][0]['content']
     assert '教学目标（仅供你把握' in prompt and '现在从第一轮开始' not in prompt
     with module.engine.connect() as db:assert db.execute(text('select step from lesson_guidance_progress where stage=3')).scalar()==2
+
+
+def test_chat_hourly_limit_is_120_per_group_and_cached_retries_are_free(env,monkeypatch):
+    module,c=env;lid=start(c,monkeypatch);student(c,1);calls=mock_ai(module,monkeypatch)
+    body={'lesson_id':lid,'stage':1,'message':'请检查我们的预测','request_id':str(uuid.uuid4())}
+    bucket=module.limits[('classroom-ai',1)]
+    bucket.extend([time.monotonic()]*119)
+    last=c.post('/api/classroom/chats',json=body)
+    assert last.status_code==201,last.text
+    assert len(bucket)==120 and len(calls)==1
+    cached=c.post('/api/classroom/chats',json=body)
+    assert cached.status_code==201 and cached.json()==last.json()
+    blocked_body={**body,'request_id':str(uuid.uuid4())}
+    assert c.post('/api/classroom/chats',json=blocked_body).status_code==429
+    assert len(bucket)==120 and len(calls)==1
+    student(c,2)
+    assert c.post('/api/classroom/chats',json=body).status_code==201
+    assert len(module.limits[('classroom-ai',2)])==1 and len(calls)==2
+    student(c,1)
+    bucket.clear();bucket.extend([time.monotonic()-3601]*120)
+    assert c.post('/api/classroom/chats',json=blocked_body).status_code==201
+    assert len(bucket)==1 and len(calls)==3
+
+
+def test_eight_concurrent_chats_block_same_group_and_release_after_failure(env,monkeypatch):
+    module,c=env;lid=start(c,monkeypatch);cookies=[]
+    for g in range(1,9):
+        c.cookies.clear();student(c,g);cookies.append(dict(c.cookies))
+    bodies=[{'lesson_id':lid,'stage':1,'message':f'第 {g} 组的问题','request_id':str(uuid.uuid4())} for g in range(1,9)]
+    real=httpx.AsyncClient
+    monkeypatch.setenv('AI_API_KEY','test');monkeypatch.setenv('AI_MODEL','mock')
+    async def run():
+        release=asyncio.Event();ready=asyncio.Event();active=0;peak=0;calls=0;failed=False
+        async def upstream(req):
+            nonlocal active,peak,calls,failed
+            active+=1;calls+=1;peak=max(peak,active)
+            if active==8:ready.set()
+            await release.wait();active-=1
+            if json.loads(req.content)['messages'][-1]['content']=='第 1 组的问题' and not failed:
+                failed=True
+                return httpx.Response(503,json={'error':'temporary failure'})
+            answer={'text':'你们选择的对照能够排除哪一种解释？','step':2,'mastery':'学生已比较直接放置材料'}
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(answer,ensure_ascii=False)}}]})
+        monkeypatch.setattr(module.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(upstream),**kw))
+        async def send(index,body=None):
+            async with real(transport=httpx.ASGITransport(app=module.app),base_url='http://testserver',headers={'X-Workbench':'1','Origin':'http://testserver'},cookies=cookies[index]) as client:
+                return await client.post('/api/classroom/chats',json=body or bodies[index])
+        tasks=[asyncio.create_task(send(g)) for g in range(8)]
+        try:
+            await asyncio.wait_for(ready.wait(),5)
+            assert (await send(0)).status_code==409
+            extra=await send(0,{**bodies[0],'request_id':str(uuid.uuid4())})
+            assert extra.status_code==409 and '本组' in extra.json()['detail']
+            assert calls==8 and len(module.limits[('classroom-ai',1)])==1
+        finally:release.set()
+        responses=await asyncio.gather(*tasks)
+        assert peak==8 and responses[0].status_code==502
+        assert all(r.status_code==201 for r in responses[1:])
+        retry=await send(0)
+        assert retry.status_code==201,retry.text
+        cached=await send(0)
+        assert cached.status_code==201 and cached.json()==retry.json()
+        assert calls==9 and len(module.limits[('classroom-ai',1)])==2
+    asyncio.run(run())
+    with module.engine.connect() as db:
+        assert db.execute(text('select count(*) from classroom_chats')).scalar()==8
 
 
 def test_score_failure_retry_override_and_new_version(env,monkeypatch):

@@ -56,3 +56,31 @@ test('initial guide is brought into view even when materials are longer than the
   assert.equal(a.el('#conversationScroll').scrollTop,1200);
   assert.match(a.el('#chatMessages').innerHTML,/本环节第一轮问题/);
 });
+
+test('chat locks before draft save so rapid clicks create one AI request',async()=>{
+  const a=setup();a.run("S.content.content.prompts=[];S.groups=[{id:1,chats:[]}];S.user.name='第 1 组'");
+  a.el('#chatInput').value='请检查我们的预测';
+  const first=a.run('sendChat()');
+  assert.equal(a.el('#sendButton').disabled,true);
+  await a.run('sendChat()');await tick();
+  assert.equal(a.calls.length,1);assert.match(a.calls[0].url,/\/work$/);
+  a.calls[0].reply({revision:1,updated:10});await tick();
+  assert.equal(a.calls.length,2);assert.match(a.calls[1].url,/\/chats$/);
+  assert.equal(a.calls[1].body.message,'请检查我们的预测');
+  await a.run('sendChat()');assert.equal(a.calls.length,2);
+  a.calls[1].reply({id:1,question:'请检查我们的预测',answer:'请先描述对照条件。',images:[]},201);
+  await first;
+  assert.equal(a.run('S.groups[0].chats.length'),1);
+  assert.equal(Boolean(a.el('#sendButton').disabled),false);
+  assert.equal(a.run('S.sending'),false);
+});
+
+test('draft failure unlocks chat and retains the question and selected images',async()=>{
+  const a=setup();a.run("S.content.content.prompts=[];S.images.set('image-1',{id:'image-1',name:'模型.png'})");
+  a.el('#chatInput').value='请检查我们的预测';
+  const first=a.run('sendChat()');await tick();
+  a.calls[0].reply({detail:'同组另一台设备已修改'},409);await first;
+  assert.equal(a.calls.length,1);assert.equal(Boolean(a.el('#sendButton').disabled),false);
+  assert.equal(a.el('#chatInput').value,'请检查我们的预测');
+  assert.equal(a.run('S.images.size'),1);assert.equal(a.run('S.sending'),false);
+});

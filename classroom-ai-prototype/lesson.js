@@ -299,10 +299,11 @@ async function sendChat(retry=false) {
   if(S.sending || S.uploading || !S.lesson || S.lesson.status!=='live') return;
   const p=retry?S.pending:{message:$('#chatInput').value.trim(),images:[...S.images.values()],request_id:crypto.randomUUID()};
   if(!p || (!p.message&&!p.images.length)) return;
-  if(!await saveWork(false)) return;
   const seq=S.seq, lessonId=S.lesson.id, stage=S.stage;
-  p.error=null; S.pending=p; S.sending=true; S.images.clear(); $('#chatInput').value=''; renderChat();
+  S.sending=true; renderChat();
   try {
+    if(!await saveWork(false) || seq!==S.seq || !S.user) return;
+    p.error=null; S.pending=p; S.images.clear(); $('#chatInput').value=''; renderChat();
     const reply=await api('/chats',{method:'POST',body:{request_id:p.request_id,lesson_id:lessonId,stage,message:p.message,image_ids:p.images.map(f=>f.id)}});
     if(seq!==S.seq||!S.user) return;
     S.pending=null; const g=S.groups.find(g=>g.id===S.user.groupId);

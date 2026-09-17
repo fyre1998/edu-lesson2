@@ -25,6 +25,7 @@ TEACHERS = ['沈老师', '王老师']
 EXTENSIONS = {'.pdf', '.doc', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp'}
 MAX_AI_IMAGES = 4
 MAX_AI_IMAGE_BYTES = 20 * 1024 * 1024
+CLASSROOM_AI_HOURLY_LIMIT = 120
 
 
 class ClassroomLogin(BaseModel):
@@ -79,6 +80,8 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
         position: Mapped[int] = mapped_column(Integer)
 
     router = APIRouter(prefix='/api/classroom')
+    # The deployed app uses one worker; groups may call AI concurrently.
+    chat_running = set()
 
     def identity(request: Request, session=Depends(db)):
         record = session.get(ClassroomSession, digest(request.cookies.get('classroom_session', '')))
@@ -271,7 +274,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
             image_records.append(image)
             image_data[image.id] = data
         question = question or '请观察这些图片，描述主要内容，并帮助我们分析。'
-        rate_limit(('classroom-ai', user.group_id), 40, 3600)
+        rate_limit(('classroom-ai', user.group_id), CLASSROOM_AI_HOURLY_LIMIT, 3600)
         history = (lesson_api.chat_rows(session, body.lesson_id, user.group_id, body.stage, 5) if body.lesson_id else
                    session.scalars(select(ClassroomChat).where(ClassroomChat.group_id == user.group_id,
                     ~ClassroomChat.id.in_(select(lesson_api.ChatContext.chat_id)))
@@ -364,15 +367,22 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
                 if old.fingerprint!=fp:raise HTTPException(409,'消息编号已经用于其他内容')
                 if old.result:return json.loads(old.result)
                 if time.time()-old.created<180:raise HTTPException(409,'这条消息正在处理，请稍候再重试')
-                session.delete(old);session.flush()
-            session.add(cls(key=key,fingerprint=fp));session.commit()
-        try:return await ask_impl(body,user,session)
+        if user.group_id in chat_running:
+            raise HTTPException(409,'本组已有一条消息正在处理，请等待回复后再发送')
+        chat_running.add(user.group_id)
+        try:
+            if key:
+                if old:session.delete(old);session.flush()
+                session.add(cls(key=key,fingerprint=fp));session.commit()
+            return await ask_impl(body,user,session)
         except BaseException:
             session.rollback()
             if key:
                 old=session.get(lesson_api.extensions.ChatRequest,key)
                 if old and not old.result:session.delete(old);session.commit()
             raise
+        finally:
+            chat_running.discard(user.group_id)
 
     from .speech import install_speech
     install_speech(router,Base,db,identity,lesson_api,rate_limit)

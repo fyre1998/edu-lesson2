@@ -80,6 +80,8 @@ class Chat(Base):
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)
+    with SessionLocal() as session:
+        classroom_router.lesson_api.repair_released_results(session)
     yield
 
 
@@ -384,6 +386,7 @@ def health(session: Session = Depends(db)):
 
 from .classroom import build_router
 
-app.include_router(build_router(Base, db, digest, rate_limit, call_ai, SECURE, UPLOADS))
+classroom_router = build_router(Base, db, digest, rate_limit, call_ai, SECURE, UPLOADS)
+app.include_router(classroom_router)
 app.mount('/classroom', StaticFiles(directory=ROOT / 'classroom-ai-prototype', html=True), name='classroom')
 app.mount('/', StaticFiles(directory=ROOT / 'frontend', html=True), name='frontend')

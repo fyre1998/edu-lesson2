@@ -386,4 +386,5 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
 
     from .speech import install_speech
     install_speech(router,Base,db,identity,lesson_api,rate_limit)
+    router.lesson_api = lesson_api
     return router

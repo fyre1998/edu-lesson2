@@ -88,7 +88,7 @@ function renderFrame() {
   show('#lessonMaterials',!isTeacher());
   if(isTeacher()) {
     const live=S.lesson.status==='live';
-    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?'预期结果已开放':'分发预期结果'}</button>`:''}${(S.lesson.flow_version!==2&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
+    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version!==2&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
   }
 }
 function materialHTML(m) {
@@ -113,12 +113,17 @@ function renderStudent() {
 function assignmentHTML(a) {
   return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(a.image)}" target="_blank" rel="noopener"><img src="${esc(a.image)}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
 }
+function assignmentLocksDesign(a) { return !!a && a.design_locked!==false; }
+function assignmentNotice() {
+  if(S.lesson.flow_version===2)return S.lesson.release_results?'正在同步本组预期结果…':'等待教师分发预期结果，每组将收到一张图片。';
+  return S.work.versions.length?(!S.work.work.fields.treatment||S.work.work.fields.treatment==='custom'?'实验设计已提交，等待教师核对并分发假设结果。':S.lesson.release_results?'等待结果匹配；如修改了方案，请先提交最新版本。':'实验设计已提交，等待教师分发假设结果。'):'请先提交实验设计。';
+}
 function renderExtras() {
   const w=S.work, archived=S.lesson.status!=='live';
-  $('#assignmentArea').innerHTML=w.assignment?assignmentHTML(w.assignment):S.stage===(S.lesson.assignment_stage||2)?`<p class="notice">${w.versions.length?(!w.work.fields.treatment||w.work.fields.treatment==='custom'?'实验设计已提交，等待教师核对并分发假设结果。':S.lesson.release_results?'等待结果匹配；如修改了方案，请先提交最新版本。':'实验设计已提交，等待教师分发假设结果。'):'请先提交实验设计。'}</p>`:'';
-  $$('[data-field]').forEach(el=>el.disabled=archived || S.submitting || (!!w.assignment && ['treatment','design','prediction'].includes(el.dataset.field)));
+  $('#assignmentArea').innerHTML=w.assignment?assignmentHTML(w.assignment):S.stage===(S.lesson.assignment_stage||2)?`<p class="notice">${assignmentNotice()}</p>`:'';
+  $$('[data-field]').forEach(el=>el.disabled=archived || S.submitting || (assignmentLocksDesign(w.assignment) && ['treatment','design','prediction'].includes(el.dataset.field)));
   $$('[data-voice-field]').forEach(b=>b.disabled=archived||S.submitting||$('#field-'+b.dataset.voiceField)?.disabled);
-  if(w.assignment) $('#assignmentArea').insertAdjacentHTML('beforeend',S.lesson.flow_version===2?'<p class="fine">原始实验设计已保留，可在对话中讨论结果与修改意见。</p>':'<p class="fine">原始方案与预测已保留。请在结果分析中记录新的解释或修改意见。</p>');
+  if(w.assignment) $('#assignmentArea').insertAdjacentHTML('beforeend',assignmentLocksDesign(w.assignment)?(S.lesson.flow_version===2?'<p class="fine">原始实验设计已保留，可在对话中讨论结果与修改意见。</p>':'<p class="fine">原始方案与预测已保留。请在结果分析中记录新的解释或修改意见。</p>'):'<p class="fine">已收到本组预期结果，可以继续完成实验设计，并在对话中讨论结果。</p>');
   for(const id of ['#submitButton','#saveButton','#uploadButton','#cameraButton']) $(id).disabled=archived || S.submitting;
   $('#workFiles').innerHTML=w.files.length?w.files.map(f=>fileHTML(f,true)).join(''):'<p class="fine">还没有附件。可上传纸质方案或手绘图。</p>';
   const count=w.versions.length, last=w.versions.at(-1);
@@ -201,6 +206,7 @@ async function refreshWork(replaceFields=false) {
   if(seq!==S.seq || !S.user || group!==(isTeacher()?S.group:S.user.groupId)) return;
   if(isTeacher()) { S.work=work; renderDetail(); return; }
   if(S.edit===S.savedEdit && work.work.revision>=S.work.work.revision) { S.work=work; if(replaceFields) renderStudent(); else renderExtras(); }
+  else if(JSON.stringify(S.work.assignment)!==JSON.stringify(work.assignment)) { S.work.assignment=work.assignment; renderExtras(); }
 }
 async function poll() {
   if(!S.user || S.syncing || S.loading || document.hidden) return;
@@ -215,7 +221,7 @@ async function poll() {
       if(!await flush()) { $('#syncStatus').textContent='老师已切换环节，请先保存本组草稿'; return; }
       S.lesson=latest; S.lastTeacherStage=latest.stage; await loadStage(latest.stage); toast('老师已切换到新的研究环节。'); return;
     }
-    const reveal=latest.reveal_research!==S.lesson.reveal_research || latest.unlocked!==S.lesson.unlocked || latest.status!==S.lesson.status;
+    const reveal=latest.reveal_research!==S.lesson.reveal_research || latest.release_results!==S.lesson.release_results || latest.unlocked!==S.lesson.unlocked || latest.status!==S.lesson.status;
     if(latest.status!=='live')globalThis.lessonVoice?.cancel();
     S.lesson=latest; lessonOptions();
     const groups=await api(base()+`/groups?stage=${S.stage}`); if(seq!==S.seq || !S.user) return;
@@ -230,6 +236,7 @@ async function poll() {
         if(revisionChanged) renderStudent(); else if(JSON.stringify(w.assignment)!==$('#assignmentArea').dataset.snapshot || reveal) renderExtras();
         $('#assignmentArea').dataset.snapshot=JSON.stringify(w.assignment);
       }
+      else if(JSON.stringify(S.work.assignment)!==JSON.stringify(w.assignment)) { S.work.assignment=w.assignment; renderExtras(); }
     }
     renderChat(); renderScores(); $('#syncStatus').textContent='已同步 · '+new Date().toLocaleTimeString('zh-CN');
   } catch(e) { $('#syncStatus').textContent='同步失败，可手动刷新'; }
@@ -241,6 +248,7 @@ function workPreview(fields){
 }
 function renderTeacher() {
   $('#overviewSummary').textContent=`${S.groups.filter(g=>g.status==='已提交').length} / ${S.lesson.group_count} 组已提交 · 状态来自本环节成果`;
+  if(S.stage===S.lesson.assignment_stage&&S.lesson.release_results)$('#overviewSummary').textContent+=` · ${S.groups.filter(g=>g.assignment).length} / ${S.lesson.group_count} 组已分发预期结果`;
   const ranked=[...S.groups].filter(g=>g.scores?.graded).sort((a,b)=>b.scores.total-a.scores.total);
   $('#groupGrid').innerHTML=S.groups.map(g=>`<button class="group-card ${g.id===S.group?'selected':''}" data-group="${g.id}"><header><strong>第 ${g.id} 组</strong><span class="state">${esc(g.status)}</span></header><p>${esc(workPreview(g.work.fields))}</p>${g.scores?`<div class="group-score">${g.scores.graded?g.scores.total:'—'} <small>/ 100</small><span>${g.scores.graded?'第 '+(1+ranked.filter(x=>x.scores.total>g.scores.total).length)+' 名':'待评分'}</span></div><div class="stage-dots">${g.scores.stages.map(r=>`<span title="环节${r.stage} ${scoreStatus[r.status]}">${r.stage} · ${r.total??'—'}</span>`).join('')}</div>`:''}<footer>${g.submission_count} 次提交 · ${g.chats.length} 轮讨论</footer></button>`).join('');
   $$('#groupGrid [data-group]').forEach(b=>{const g=S.groups.find(g=>g.id===Number(b.dataset.group));b.setAttribute('aria-label',`第 ${g.id} 组，${g.status}`);});
@@ -256,7 +264,7 @@ function renderDetail() {
   const snapshot=JSON.stringify([S.stage,g,w,S.lesson.release_results,S.lesson.status]);
   if($('#groupDetail').dataset.snapshot===snapshot)return;
   const openStates=$$('#groupDetail details').map(d=>d.open);
-  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&w.versions.length&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length} 轮）</summary>${chatsHTML(g.chats)}</details></div>`;
+  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length} 轮）</summary>${chatsHTML(g.chats)}</details></div>`;
   $$('#groupDetail details').forEach((d,i)=>d.open=openStates[i]||false);
   $('#groupDetail').dataset.snapshot=snapshot;
 }
@@ -275,7 +283,7 @@ function eventDescription(e) {
   if(e.kind==='adjust') return `调整为 ${treatmentLabel(d.after.treatment)}，情境 ${'ABC'[d.after.variant]}。依据：${d.after.reason}`;
   return [d.stage?'开放环节 '+d.stage:'',d.release_results?'开放预期结果分发':'',d.reveal_research?'开放历史结果核对':'',d.status==='archived'?'归档本课':''].filter(Boolean).join('；');
 }
-function treatmentLabel(t) { return {remove_tip:'去除顶端',tip_shade:'顶端遮光',lower_shade:'下部遮光',marking:'分段标记观察',custom:'自定义'}[t]||t; }
+function treatmentLabel(t) { return {bean_shading:'菜豆遮光实验预期结果',remove_tip:'去除顶端',tip_shade:'顶端遮光',lower_shade:'下部遮光',marking:'分段标记观察',custom:'自定义'}[t]||t; }
 async function control(body) { await api(base(),{method:'PATCH',body}); await loadLessons(S.lesson.id); await refreshEvents(); }
 async function createLesson() { const title=$('#newLessonTitle')?.value||'生长素探究课 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
 function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
@@ -351,8 +359,8 @@ async function legacy() {
   $('#historyBody').innerHTML=data.map(g=>`<details><summary>第 ${g.id} 组 · ${g.files.length} 份资料 / ${g.chat.length} 条对话</summary>${g.files.map(f=>fileHTML(f)).join('')}${g.chat.map(c=>`<div class="chat-entry"><div class="speaker">${esc(c.speaker)}</div><p>${esc(c.text)}</p>${(c.images||[]).map(f=>fileHTML(f)).join('')}</div>`).join('')}</details>`).join('');
 }
 async function adjust() {
-  const t=S.work.versions.find(v=>v.id===S.work.assignment?.version_id)?.fields.treatment||S.work.versions.at(-1)?.fields.treatment||'custom';
-  $('#adjustInfo').textContent=`第 ${S.group} 组 · 已提交处理：${treatmentLabel(t)}。自定义方案须先核对，无法匹配时保留待处理状态。`;
+  const t=S.lesson.flow_version===2?'bean_shading':S.work.versions.find(v=>v.id===S.work.assignment?.version_id)?.fields.treatment||S.work.versions.at(-1)?.fields.treatment||'custom';
+  $('#adjustInfo').textContent=S.lesson.flow_version===2?`第 ${S.group} 组 · 从三张预期结果图中选择本组图片。`:`第 ${S.group} 组 · 已提交处理：${treatmentLabel(t)}。自定义方案须先核对，无法匹配时保留待处理状态。`;
   const options=t==='custom'?['remove_tip','tip_shade','lower_shade','marking']:[t];
   $('#adjustTreatment').innerHTML=options.map(t=>`<option value="${t}">${treatmentLabel(t)}</option>`).join('');
   $('#adjustVariant').value=S.work.assignment?.variant||0; $('#adjustReason').value='';

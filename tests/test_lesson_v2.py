@@ -273,8 +273,129 @@ def test_teacher_matches_design_without_old_treatment_field(env,monkeypatch):
     assert submit(c,lid,1,{'design':'顶端遮光，设置其他条件相同的未遮光对照，观察生长和弯曲。'}).status_code==201
     classroom_login(c,teacher=True)
     assert c.patch(f'/api/classroom/lessons/{lid}',json={'release_results':True}).status_code==200
-    r=c.post(f'/api/classroom/lessons/{lid}/assignments',json={'group_id':1,'treatment':'tip_shade','variant':0,'reason':'教师已核对方案中的遮光部位'})
+    r=c.post(f'/api/classroom/lessons/{lid}/assignments',json={'group_id':1,'treatment':'bean_shading','variant':0,'reason':'教师已核对方案中的遮光部位'})
     assert r.status_code==200,r.text
+
+
+def test_expected_results_reach_all_groups_and_use_supplied_images(env, monkeypatch):
+    from backend import lesson_expected_results as expected
+    module, c = env
+    lid = start(c, monkeypatch)
+    mock_ai(module, monkeypatch)
+    student(c, 1)
+    data = {'light_site': '茎尖', 'bend_site': '下部', 'design': '设置完整幼苗、茎尖遮光、透明罩和下部遮光四种处理。'}
+    assert submit(c, lid, 1, data).status_code == 201
+    assert c.get(f'/api/classroom/lessons/{lid}/groups/1/result.png').status_code == 404
+    student(c, 2)
+    assert c.put(f'/api/classroom/lessons/{lid}/stages/1/work', json={'revision': 0, 'fields': data}).status_code == 200
+    student(c, 3)
+    assert submit(c, lid, 1, {}).status_code == 201  # Optional blank submission.
+    classroom_login(c, teacher=True)
+    assert c.patch(f'/api/classroom/lessons/{lid}', json={'release_results': True}).status_code == 200
+    rows = c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()
+    assignments = [g['assignment'] for g in rows]
+    assert all(a and a['treatment'] == expected.TREATMENT for a in assignments)
+    assert sorted(sum(a['variant'] == n for a in assignments) for n in range(3)) == [2, 3, 3]
+    assert assignments[0]['design_locked'] is True
+    assert assignments[1]['design_locked'] is False
+    assert assignments[7]['design_locked'] is False
+    choices = c.get(f'/api/classroom/lessons/{lid}/scenarios/{expected.TREATMENT}').json()
+    for choice in choices:
+        image = c.get(choice['image'])
+        assert image.status_code == 200 and image.headers['content-type'] == 'image/png'
+        assert image.content == Path('backend/lesson_assets', expected.ASSETS[choice['variant']]).read_bytes()
+    for group, assignment in enumerate(assignments, 1):
+        student(c, group)
+        work = c.get(f'/api/classroom/lessons/{lid}/groups/{group}/stages/1').json()
+        assert work['assignment'] == assignment
+        image = c.get(assignment['image'])
+        assert image.status_code == 200 and image.headers['content-type'] == 'image/png'
+        assert image.headers['cache-control'] == 'no-store'
+        assert image.content == Path('backend/lesson_assets', expected.ASSETS[assignment['variant']]).read_bytes()
+        assert c.get(f'/api/classroom/lessons/{lid}/groups/{group % 8 + 1}/result.png').status_code == 404
+        assert c.get(choices[0]['image']).status_code == 403
+    # A group without an original submission can still submit after receiving a result.
+    assert submit(c, lid, 1, data).status_code == 201
+    student(c, 1)
+    assert submit(c, lid, 1, {**data, 'design': '修改原始设计'}, revision=1).status_code == 409
+    classroom_login(c, teacher=True)
+    assert c.patch(f'/api/classroom/lessons/{lid}', json={'release_results': True}).status_code == 200
+    assert [g['assignment'] for g in c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()] == assignments
+    with module.SessionLocal() as session:
+        module.classroom_router.lesson_api.repair_released_results(session)
+    assert [g['assignment'] for g in c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()] == assignments
+    events = c.get(f'/api/classroom/lessons/{lid}/events').json()
+    assert sum(e['kind'] == 'assign' for e in events) == 8
+
+
+def test_previously_released_live_lesson_is_repaired_without_fake_submissions(env, monkeypatch):
+    module, c = env
+    lid = start(c, monkeypatch)
+    with module.engine.begin() as connection:
+        connection.execute(text('update lesson_runs set release_results=1 where id=:id'), {'id': lid})
+    # The application's startup hook uses this same backfill operation.
+    with module.SessionLocal() as session:
+        module.classroom_router.lesson_api.repair_released_results(session)
+    rows = c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()
+    assert all(g['assignment'] and g['submission_count'] == 0 for g in rows)
+    assert sorted(sum(g['assignment']['variant'] == n for g in rows) for n in range(3)) == [2, 3, 3]
+    with module.engine.connect() as connection:
+        assert connection.execute(text('select count(*) from lesson_work_versions')).scalar() == 0
+    assert c.patch(f'/api/classroom/lessons/{lid}', json={'status': 'archived'}).status_code == 200
+    new = c.post('/api/classroom/lessons', json={}).json()['id']
+    assert all(g['assignment'] is None for g in c.get(f'/api/classroom/lessons/{new}/groups?stage=1').json())
+
+
+def test_result_adjustments_use_real_images_and_keep_different_results(env, monkeypatch):
+    module, c = env
+    lid = start(c, monkeypatch)
+    assert c.patch(f'/api/classroom/lessons/{lid}', json={'release_results': True}).status_code == 200
+    assert c.post(f'/api/classroom/lessons/{lid}/assignments', json={
+        'group_id': 8, 'treatment': 'bean_shading', 'variant': 2, 'reason': '保留另一种图片'}).status_code == 200
+    for group in range(1, 8):
+        response = c.post(f'/api/classroom/lessons/{lid}/assignments', json={
+            'group_id': group, 'treatment': 'bean_shading', 'variant': 0, 'reason': '教师核对后调整图片'})
+        assert response.status_code == 200
+    response = c.post(f'/api/classroom/lessons/{lid}/assignments', json={
+        'group_id': 8, 'treatment': 'bean_shading', 'variant': 0, 'reason': '尝试设为同一图片'})
+    assert response.status_code == 422
+    rows = c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()
+    assert len({g['assignment']['variant'] for g in rows}) >= 2
+    student(c, 8)
+    calls = mock_ai(module, monkeypatch)
+    assert c.post('/api/classroom/chats', json={'lesson_id': lid, 'stage': 1, 'message': '本组收到了什么结果？', 'request_id': str(uuid.uuid4())}).status_code == 201
+    assert rows[7]['assignment']['label'] in calls[-1][1]['messages'][0]['content']
+
+
+def test_stage_two_opener_has_the_four_requested_questions_in_order(env, monkeypatch):
+    _, c = env
+    lid = start(c, monkeypatch, 2)
+    student(c, 8)
+    content = c.get(f'/api/classroom/lessons/{lid}/stages/2').json()
+    assert content['opener'].splitlines() == [
+        '（1）这种影响的本质是什么？',
+        '（2）这种影响是抑制还是促进生长？',
+        '（3）这种影响是光诱导后才产生的吗？',
+        '（4）这种影响如何使幼苗弯曲？',
+    ]
+    assert [f['key'] for f in content['content']['fields'] if not f.get('hidden')] == ['design']
+
+
+def test_archived_earlier_result_records_remain_readable(env, monkeypatch):
+    module, c = env
+    lid = start(c, monkeypatch)
+    student(c, 1)
+    version = submit(c, lid, 1, {}).json()['submission_id']
+    with module.engine.begin() as connection:
+        connection.execute(text('update lesson_runs set status=\'archived\', release_results=1 where id=:id'), {'id': lid})
+        connection.execute(text('insert into lesson_assignments (lesson_id,group_id,treatment,variant,version_id,created) '
+                                'values (:id,1,\'tip_shade\',0,:version,1)'), {'id': lid, 'version': version})
+    with module.SessionLocal() as session:
+        module.classroom_router.lesson_api.repair_released_results(session)
+    work = c.get(f'/api/classroom/lessons/{lid}/groups/1/stages/1').json()
+    assert work['assignment']['treatment'] == 'tip_shade'
+    assert c.get(work['assignment']['image']).headers['content-type'].startswith('image/svg+xml')
+    assert c.get(f'/api/classroom/lessons/{lid}/groups/1/result.png').status_code == 404
 
 
 def test_transcription_auth_formats_limit_and_idempotency(env,monkeypatch):

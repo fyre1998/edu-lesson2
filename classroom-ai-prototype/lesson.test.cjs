@@ -45,6 +45,18 @@ test('delayed refresh cannot replace a newer saved revision',async()=>{
   a.run('S.work.work.revision=3');a.calls[0].reply({work:{revision:1},files:[],versions:[]});await refresh;
   assert.equal(a.run('S.work.work.revision'),3);
 });
+test('result arrives while typing without replacing the local draft or locking an unsubmitted design',async()=>{
+  const a=setup();
+  a.fields[0].dataset.field='design';a.fields[0].value='尚未保存的本组设计';
+  a.run('S.lesson.flow_version=2');
+  const pending=a.run('refreshWork(false)');
+  a.calls[0].reply({work:{revision:0,fields:{design:'服务器旧草稿'}},assignment:{variant:1,image:'/result.png',design_locked:false}});
+  await pending;
+  assert.equal(a.fields[0].value,'尚未保存的本组设计');
+  assert.equal(a.fields[0].disabled,false);
+  assert.equal(a.run('S.work.assignment.variant'),1);
+  assert.match(a.el('#assignmentArea').innerHTML,/result.png/);
+});
 test('teacher switching groups ignores a late response for the previous group',async()=>{
   const a=setup();a.run("S.user={role:'teacher'};S.group=7");const refresh=a.run('refreshWork(false)');
   a.run('S.group=8;S.work.work.revision=8');a.calls[0].reply({work:{revision:7},files:[],versions:[]});await refresh;

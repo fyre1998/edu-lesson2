@@ -111,6 +111,28 @@ def test_ai_unconfigured_and_mocked(env, monkeypatch):
         assert len(json.loads(calls[-1].content)['messages']) == 2
 
 
+def test_ai_truncated_response_is_not_saved(env, monkeypatch):
+    import json
+    module, client = env
+    register(client)
+    monkeypatch.setenv('AI_API_KEY', 'test-key')
+    monkeypatch.setenv('AI_MODEL', '~deepseek/deepseek-flash-latest')
+    monkeypatch.setenv('AI_MAX_TOKENS', '8192')
+    monkeypatch.setenv('AI_REASONING_EFFORT', 'low')
+    real_client = httpx.AsyncClient
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload['max_tokens'] == 8192
+        assert payload['reasoning'] == {'effort': 'low'}
+        assert 'response_format' not in payload  # Ordinary workbench chat remains plain text.
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'length', 'message': {'content': '这是一段未完成的'}}]})
+    monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    response = client.post('/api/chats', json={'message': '解释这个实验'})
+    assert response.status_code == 502
+    assert '未完整生成' in response.json()['detail']
+    assert client.get('/api/chats').json() == []
+
+
 def test_rate_limit_and_closed_registration(env, monkeypatch):
     module, client = env
     monkeypatch.setenv('ALLOW_REGISTRATION', 'false')

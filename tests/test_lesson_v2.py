@@ -31,6 +31,9 @@ def mock_ai(module,monkeypatch,handler=None):
     calls=[];real=httpx.AsyncClient
     def receive(req):
         payload=json.loads(req.content);calls.append((str(req.url),payload))
+        if not req.url.path.endswith('/audio/transcriptions'):
+            assert payload['response_format']['type'] == 'json_schema'
+            assert payload['response_format']['json_schema']['strict'] is True
         if handler:return handler(req,payload)
         if req.url.path.endswith('/audio/transcriptions'):return httpx.Response(200,json={'text':'我们比较拜尔与温特的实验。'})
         system=payload['messages'][0]['content']

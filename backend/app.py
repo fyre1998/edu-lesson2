@@ -305,17 +305,40 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
 
 
-async def call_ai(messages):
+async def call_ai(messages, *, json_output=False, response_schema=None):
     key, model = os.getenv('AI_API_KEY'), os.getenv('AI_MODEL')
     if not key or not model:
         raise HTTPException(503, 'AI 尚未配置，请联系教师或管理员')
     try:
+        max_tokens = int(os.getenv('AI_MAX_TOKENS') or '8192')
+        if not 256 <= max_tokens <= 32768:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(503, 'AI 输出额度配置无效，请联系管理员') from None
+    payload = {'model': model, 'messages': messages, 'max_tokens': max_tokens}
+    effort = os.getenv('AI_REASONING_EFFORT', '').strip()
+    if effort:
+        if effort not in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'):
+            raise HTTPException(503, 'AI 推理强度配置无效，请联系管理员')
+        payload['reasoning'] = {'effort': effort}
+    if json_output:
+        payload['response_format'] = {'type': 'json_object'}
+    base_url = os.getenv('AI_BASE_URL', 'https://openrouter.ai/api/v1').rstrip('/')
+    if response_schema is not None:
+        payload['response_format'] = {'type': 'json_schema', 'json_schema': {
+            'name': 'classroom_response', 'strict': True, 'schema': response_schema}}
+        if httpx.URL(base_url).host == 'openrouter.ai':
+            payload['provider'] = {'require_parameters': True}
+    try:
         async with httpx.AsyncClient(timeout=120) as client:
-            upstream = await client.post(os.getenv('AI_BASE_URL', 'https://openrouter.ai/api/v1').rstrip('/') + '/chat/completions',
+            upstream = await client.post(base_url + '/chat/completions',
                 headers={'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
-                json={'model': model, 'messages': messages, 'max_tokens': 2000})
+                json=payload)
             upstream.raise_for_status()
-            answer = upstream.json()['choices'][0]['message']['content']
+            choice = upstream.json()['choices'][0]
+            if choice.get('finish_reason') == 'length':
+                raise HTTPException(502, 'AI 回复未完整生成，请重试或联系教师调整输出额度')
+            answer = choice['message']['content']
             if not isinstance(answer, str) or not answer.strip():
                 raise ValueError('empty answer')
             return answer

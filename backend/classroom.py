@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
+from .ai_schemas import GUIDANCE_SCHEMA
 
 ROSTER = [
     ['王晓彤', '赵文博', '许佳宁', '江子航'], ['孙语桐', '章明宇', '董欣然', '徐一帆'],
@@ -324,7 +325,8 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
             messages.extend([{'role': 'user', 'content': content(chat.question, history_images[chat.id])},
                              {'role': 'assistant', 'content': chat.answer[:12000]}])
         messages.append({'role': 'user', 'content': content(question, image_records)})
-        answer = await call_ai(messages)
+        schema = GUIDANCE_SCHEMA if current_lesson and lesson_api.config(current_lesson)[0] == 2 else None
+        answer = await call_ai(messages, response_schema=schema)
         session.expire_all()
         if current_lesson:
             current_lesson=lesson_api.get(session,body.lesson_id,body.stage,write=True)

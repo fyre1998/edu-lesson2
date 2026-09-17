@@ -9,6 +9,8 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-8192}
+      AI_REASONING_EFFORT: ${AI_REASONING_EFFORT:-}
       STT_BASE_URL: ${STT_BASE_URL:-}
       STT_API_KEY: ${STT_API_KEY:-}
       STT_MODEL: ${STT_MODEL:-openai/gpt-4o-mini-transcribe}

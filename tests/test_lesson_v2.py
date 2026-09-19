@@ -43,6 +43,7 @@ def mock_ai(module,monkeypatch,handler=None):
             rubric=json.loads(system.split('量规：')[-1]);body=json.loads(payload['messages'][1]['content'][0]['text'])
             evidence='field:'+next(iter(body['fields']))
             answer={'items':[{'key':r[0],'points':r[2],'missing':False,'evidence':[evidence],'reason':'学生提交文字与操作对应'} for r in rubric]}
+            answer['feedback']={'strengths':[{'key':r[0],'text':f'你们在“{r[1]}”中把操作与证据联系起来了。'} for r in rubric], 'improvements':[]}
         else:answer={'text':'你们选择的对照能够排除哪一种解释？','step':2,'mastery':'学生已比较直接放置材料'}
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(answer,ensure_ascii=False)}}]})
     monkeypatch.setattr(module.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(receive),**kw))
@@ -296,7 +297,7 @@ def test_expected_results_reach_all_groups_and_use_supplied_images(env, monkeypa
     assignments = [g['assignment'] for g in rows]
     assert all(a and a['treatment'] == expected.TREATMENT for a in assignments)
     assert sorted(sum(a['variant'] == n for a in assignments) for n in range(3)) == [2, 3, 3]
-    assert assignments[0]['design_locked'] is True
+    assert assignments[0]['design_locked'] is False
     assert assignments[1]['design_locked'] is False
     assert assignments[7]['design_locked'] is False
     choices = c.get(f'/api/classroom/lessons/{lid}/scenarios/{expected.TREATMENT}').json()
@@ -317,7 +318,12 @@ def test_expected_results_reach_all_groups_and_use_supplied_images(env, monkeypa
     # A group without an original submission can still submit after receiving a result.
     assert submit(c, lid, 1, data).status_code == 201
     student(c, 1)
-    assert submit(c, lid, 1, {**data, 'design': '修改原始设计'}, revision=1).status_code == 409
+    revised = submit(c, lid, 1, {**data, 'design': '根据反馈完善后的实验设计'}, revision=1)
+    assert revised.status_code == 201
+    history = c.get(f'/api/classroom/lessons/{lid}/groups/1/stages/1').json()['versions']
+    assert len(history) == 2 and history[0]['fields']['design'] == data['design']
+    assert history[0]['id'] == assignments[0]['version_id']
+    assert history[1]['fields']['design'] == '根据反馈完善后的实验设计'
     classroom_login(c, teacher=True)
     assert c.patch(f'/api/classroom/lessons/{lid}', json={'release_results': True}).status_code == 200
     assert [g['assignment'] for g in c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()] == assignments

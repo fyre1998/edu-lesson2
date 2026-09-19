@@ -102,7 +102,8 @@ function scoreHTML(scores,teacher=false){
 }
 function renderScores(){
   const g=S.groups.find(g=>g.id===(isTeacher()?S.group:S.user?.groupId));
-  for(const [id,teacher] of [['#studentScore',false],['#teacherScore',true]]){
+  renderStudentScore(g?.scores);
+  for(const [id,teacher] of [['#teacherScore',true]]){
     const el=$(id);if(!el||(teacher&&!isTeacher()))continue;
     const snapshot=JSON.stringify([S.stage,g?.id,g?.scores,teacher]);if(el.dataset.scoreSnapshot===snapshot)continue;
     const states=new Map($$(id+' details').map(d=>[d.dataset.scoreStage,d.open]));el.innerHTML=scoreHTML(g?.scores,teacher);
@@ -115,6 +116,7 @@ function editScore(id){
   $('#scoreVersion').value=id;$('#scoreFields').innerHTML=score.items.map(i=>`<label>${esc(i.label)}（0–${i.maximum}）<input type="number" min="0" max="${i.maximum}" step="1" required data-score-key="${i.key}" value="${i.points??0}"></label>`).join('');$('#scoreReason').value='';$('#scoreDialog').showModal();
 }
 function installWidgets(){
+  installScoreBubble();
   installPictureEvents();
   $('#workForm').addEventListener('click',async e=>{try{
     if(e.target.closest('#extractModel'))return extractModel();

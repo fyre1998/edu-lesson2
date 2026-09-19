@@ -22,6 +22,7 @@ async function api(path, options={}) {
   return data;
 }
 function reset() {
+  resetScoreBubble();
   globalThis.lessonVoice?.cancel();
   S.seq++; S.user=null; S.lesson=null; S.content=null; S.work=null; S.pending=null; S.images.clear();
   S.edit=S.savedEdit=0; clearTimeout(S.draftTimer); camera?.close();
@@ -48,6 +49,7 @@ function lessonOptions() {
   if(S.lesson) $('#lessonSelect').value=S.lesson.id;
 }
 async function loadLessons(preferred) {
+  resetScoreBubble();
   S.lessons=await api('/lessons');
   S.lesson=S.lessons.find(l=>l.id===preferred)||S.lessons.find(l=>l.status==='live')||S.lessons[0]||null;
   lessonOptions(); show('#emptyState',!S.lesson); show('#lessonSurface',!!S.lesson);
@@ -61,6 +63,7 @@ async function loadLessons(preferred) {
   await loadStage(S.lesson.stage);
 }
 async function loadStage(stage) {
+  resetScoreBubble();
   globalThis.lessonVoice?.cancel(); S.modelNotice=''; S.selectedScientist=null;
   const seq=++S.seq, lessonId=S.lesson.id; S.loading=true; S.pending=null; S.images.clear(); S.submitAttempt=null;
   try {
@@ -163,6 +166,7 @@ function restoreLocalDraft() {
 }
 function markDirty() {
   S.edit++; S.submitAttempt=null; localDraft(); $('#saveStatus').textContent='尚未同步，正在准备保存…';
+  renderScores();
   clearTimeout(S.draftTimer); S.draftTimer=setTimeout(()=>saveWork(false),900);
 }
 function submitFinalWork(){

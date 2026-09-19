@@ -210,7 +210,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             Event.group_id == group_id, Event.kind == 'adjust').order_by(Event.id.desc()))
         output.update(created=item.created, version_id=item.version_id,
                       adjusted_at=adjustment.created if adjustment else None,
-                      design_locked=bool(item.version_id),
+                      design_locked=bool(item.version_id) and config(lesson)[0] != 2,
                       image=f'/api/classroom/lessons/{lesson_id}/groups/{group_id}/result.{"png" if is_v2 else "svg"}')
         return output
 
@@ -406,7 +406,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             record = session.get(Work, (lesson_id, user.group_id, stage))
             if body.revision != (record.revision if record else 0):
                 raise HTTPException(409, '同组另一台设备已修改，请先查看最新版本；当前文字仍保留在页面')
-            if stage == assignment_stage(lesson):
+            if stage == assignment_stage(lesson) and config(lesson)[0] != 2:
                 assignment = assignment_record(session, lesson, user.group_id)
                 if assignment and assignment.version_id:
                     original = json.loads(session.get(Version, assignment.version_id).data)

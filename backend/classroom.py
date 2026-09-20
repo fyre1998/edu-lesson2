@@ -347,7 +347,8 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
             session.add(lesson_api.ChatContext(chat_id=record.id, lesson_id=body.lesson_id, stage=body.stage))
         for position, image in enumerate(image_records):
             session.add(ClassroomChatImage(chat_id=record.id, file_id=image.id, position=position))
-        result={'id':record.id,'question': question, 'answer': answer, 'images': [file_info(image) for image in image_records]}
+        result={'id':record.id,'question': question, 'answer': answer, 'created': record.created,
+                'images': [file_info(image) for image in image_records]}
         if body.request_id:
             req=session.get(lesson_api.extensions.ChatRequest,lesson_api.extensions.request_key(body,user.group_id))
             if req: req.result=json.dumps(result,ensure_ascii=False)

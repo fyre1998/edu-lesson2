@@ -6,7 +6,7 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'u
 
 function setup(){
   const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0;
-  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
+  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
     FormData,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
@@ -15,6 +15,7 @@ function setup(){
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'score-bubble.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
+  vm.runInContext(source.slice(source.indexOf("$('#chatForm').addEventListener"),source.indexOf("$('#quickPrompts').addEventListener")),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
   return{calls,fields,local,el,timers,run:code=>vm.runInContext(code,context)};
 }
@@ -43,12 +44,74 @@ test('two-part result matching updates while typing without replacing the draft'
   const a=setup(); a.run('S.lesson.flow_version=3');
   a.fields[0].value='还在修改的设计';
   const refresh=a.run('refreshWork(false)');
-  a.calls[0].reply({work:{revision:0},versions:[{id:'new',revision:1,fields:{},file_ids:[]}],files:[],scores:null,
-    result_match:{version_id:'new',revision:1,status:'ready',matches:[{result_id:'gelatin_separator',image:'/one.png',label:'明胶隔层',excerpt:'学生原话'}],questions:[],uncovered:[]}});
+  const match={version_id:'new',revision:1,status:'ready',matches:[{result_id:'gelatin_separator',image:'/one.png',label:'明胶隔层',excerpt:'学生原话'}],questions:[],uncovered:[]};
+  a.calls[0].reply({work:{revision:0},versions:[{id:'new',revision:1,fields:{design:'学生原话'},file_ids:[],result_match:match}],files:[],scores:null,result_match:match});
   await refresh;
   assert.equal(a.fields[0].value,'还在修改的设计');
-  assert.match(a.el('#assignmentArea').innerHTML,/one.png/);
-  assert.match(a.el('#assignmentArea').innerHTML,/上次提交/);
+  assert.match(a.el('#chatMessages').innerHTML,/one.png/);
+  assert.match(a.el('#chatMessages').innerHTML,/第 1 次实验结果/);
+  assert.doesNotMatch(a.el('#chatMessages').innerHTML,/还在修改的设计/);
+  assert.equal(a.el('#assignmentArea').innerHTML,'');
+});
+
+function inquiryVersion(id,time,status='ready'){
+  return {id,revision:time,updated:time,author:'第 1 组',fields:{design:`思路${id}`},file_ids:[],
+    result_match:{version_id:id,revision:time,status,matches:status==='ready'?[{image:`/${id}.png`,label:`处理${id}`,excerpt:`思路${id}`}]:[],questions:[],uncovered:[]}};
+}
+
+test('all submission replies persist in chronological chat history during matching, retries and reload',()=>{
+  const a=setup(),first=inquiryVersion('first',10),second=inquiryVersion('second',30,'processing');
+  a.run(`S.lesson.flow_version=3;S.work.versions=${JSON.stringify([first,second])};S.groups=[{id:1,chats:[{id:1,created:20,question:'中间讨论',answer:'请分析第一轮证据'}]}];renderChat()`);
+  let html=a.el('#chatMessages').innerHTML;
+  assert.match(html,/first.png/);assert.match(html,/正在匹配结果图/);
+  assert.ok(html.indexOf('思路first')<html.indexOf('中间讨论'));
+  assert.ok(html.indexOf('中间讨论')<html.indexOf('思路second'));
+  second.result_match.status='failed';second.result_match.error='请重试';
+  a.run(`S.work.versions=${JSON.stringify([first,second])};renderChat()`);
+  assert.match(a.el('#chatMessages').innerHTML,/data-match-retry="second"/);
+  const ready=inquiryVersion('second',30);
+  a.run(`S.work.versions=${JSON.stringify([first,ready])};renderChat();renderChat()`);
+  html=a.el('#chatMessages').innerHTML;
+  assert.equal((html.match(/data-submission-id=/g)||[]).length,2);
+  assert.match(html,/first.png/);assert.match(html,/second.png/);
+  const fresh=setup();fresh.run(`S.lesson.flow_version=3;S.work.versions=${JSON.stringify([first,ready])};renderChat()`);
+  assert.match(fresh.el('#chatMessages').innerHTML,/first.png/);assert.match(fresh.el('#chatMessages').innerHTML,/second.png/);
+  fresh.run('S.stage=2;renderChat()');assert.doesNotMatch(fresh.el('#chatMessages').innerHTML,/first.png|second.png/);
+});
+
+test('photo submissions and multi-image replies stay together and escape student content',()=>{
+  const a=setup(),v=inquiryVersion('photos',10);
+  v.fields.design='';v.file_ids=['photo'];
+  v.result_match.matches.push({image:'/extra.png',label:'第二种处理',excerpt:'<script>危险内容</script>'});
+  const html=a.run(`chatsHTML([],${JSON.stringify([v])},[{id:'photo',preview:true,name:'<img src=x>'}])`);
+  assert.match(html,/实验思路照片/);assert.match(html,/photo\?preview=true/);
+  assert.match(html,/photos.png/);assert.match(html,/extra.png/);
+  assert.doesNotMatch(html,/<script>|<img src=x>/);
+});
+
+test('Enter sends through the form exactly once and retains normal chat completion',async()=>{
+  const a=setup();a.run('S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}]');
+  a.el('#chatInput').value='请比较两次实验';let prevented=0;
+  const enter=()=>a.el('#chatInput').listeners.keydown({key:'Enter',preventDefault(){prevented++;}});
+  enter();enter();await tick();
+  assert.equal(prevented,2);assert.equal(a.calls.length,1);assert.equal(a.calls[0].body.message,'请比较两次实验');
+  assert.equal(a.el('#chatInput').value,'');
+  a.calls[0].reply({id:1,created:20,question:'请比较两次实验',answer:'请比较处理。',images:[]},201);await tick();
+  assert.match(a.el('#chatMessages').innerHTML,/请比较处理/);
+});
+
+test('Shift+Enter and IME confirmation never submit; busy, archived and empty inputs are guarded',async()=>{
+  const a=setup();a.run('S.edit=S.savedEdit=0');a.el('#chatInput').value='正在选字';
+  for(const extra of [{shiftKey:true},{isComposing:true},{keyCode:229},{key:'a'}]){
+    a.el('#chatInput').listeners.keydown({key:'Enter',preventDefault(){assert.fail('must keep native input');},...extra});
+  }
+  const key=extra=>a.el('#chatInput').listeners.keydown({key:'Enter',preventDefault(){},...extra});
+  key({repeat:true});a.el('#chatInput').readOnly=true;key();a.el('#chatInput').readOnly=false;
+  for(const flag of ['uploading','submitting','sending','loading','extracting']){a.run(`S.${flag}=true`);key();a.run(`S.${flag}=false`);}
+  a.el('#sendButton').disabled=true;key();a.el('#sendButton').disabled=false;
+  a.run("S.lesson.status='archived'");key();a.run("S.lesson.status='live'");
+  a.el('#chatInput').value='  ';key();await tick();
+  assert.equal(a.calls.length,0);
 });
 test('late result snapshots cannot replace a newer inquiry submission',()=>{
   const a=setup();a.run("S.lesson.flow_version=3; S.work.versions=[{id:'new',revision:5}];S.work.result_match={version_id:'new'};syncSubmissionResults({versions:[{id:'old',revision:3}],result_match:{version_id:'old'}})");

@@ -225,6 +225,30 @@ def test_v3_chat_allows_agar_and_keeps_structured_guidance(env, monkeypatch):
     assert len(calls) == 1
 
 
+def test_chat_can_refer_to_each_preserved_result_after_new_submissions(env, monkeypatch):
+    module, c = env; lid = start(c, monkeypatch); student(c, 1)
+    answers = [matching('gelatin_separator'), matching('mica_light_side'),
+               dict(text='请比较两次处理的不同。', step=1, mastery='比较两轮实验')]
+    calls = mock(module, monkeypatch, lambda _: answers.pop(0))
+    assert submit(c, lid, 1, {'design': '明胶隔层'}).status_code == 201
+    first = work(c, lid)['versions'][0]
+    assert submit(c, lid, 1, {'design': '向光侧插入云母片'}, revision=1).status_code == 201
+    body = dict(lesson_id=lid, stage=1, message='比较第一轮和第二轮实验', request_id=str(uuid.uuid4()))
+    response = c.post('/api/classroom/chats', json=body)
+    assert response.status_code == 201, response.text
+    context = calls[-1]['messages'][0]['content']
+    assert '本组历次提交的结果图匹配记录' in context
+    assert 'gelatin_separator' in context and 'mica_light_side' in context
+    assert first['id'] in context
+    student(c, 1)
+    current = work(c, lid)
+    assert current['versions'][0] == first
+    assert len(current['versions']) == 2
+    assert c.get(first['result_match']['matches'][0]['image']).status_code == 200
+    chats = c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()[0]['chats']
+    assert chats[0]['created'] == response.json()['created']
+
+
 def test_late_jobs_never_replace_latest_submission(env, monkeypatch):
     module, c = env; lid = start(c, monkeypatch); student(c, 1)
     queued = []

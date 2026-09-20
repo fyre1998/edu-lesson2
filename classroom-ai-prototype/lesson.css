@@ -170,6 +170,10 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .inquiry-result p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .inquiry-result img { display: block; width: auto; max-width: 100%; max-height: 380px; height: auto; object-fit: contain; margin: 10px auto; }
 .comparison .inquiry-result img { max-height: 480px; }
+.chat-entry .inquiry-result img { max-height: 380px; }
+.experiment-reply { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.experiment-reply .inquiry-result:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.chat-keyboard-hint { display: block; margin: 4px 0 0; }
 .version-assessment { padding: 14px 0; }
 .version-assessment h4 { margin: 0 0 10px; }
 

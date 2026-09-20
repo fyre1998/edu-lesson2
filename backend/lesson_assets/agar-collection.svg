@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="310" viewBox="0 0 960 310" role="img" aria-labelledby="title desc">
+<title id="title">琼脂收集操作</title><desc id="desc">切下幼苗尖端，将尖端接触琼脂一段时间，移去尖端后保留琼脂。</desc>
+<rect width="960" height="310" fill="#f8faf6"/>
+<g font-family="Microsoft YaHei, sans-serif" fill="#233c32" text-anchor="middle">
+<text x="160" y="44" font-size="22">1　切下幼苗尖端</text>
+<text x="480" y="44" font-size="22">2　让尖端接触琼脂</text>
+<text x="800" y="44" font-size="22">3　移去尖端，保留琼脂</text>
+<g fill="#82ad6c" stroke="#426c3c" stroke-width="2">
+<path d="M145 242V154H175V242Z"/><path d="M145 128Q145 86 160 72Q175 86 175 128Z"/>
+<path d="M465 177Q465 135 480 121Q495 135 495 177Z"/>
+<path d="M831 121Q831 79 846 65Q861 79 861 121Z"/>
+</g>
+<path d="M127 141H193" stroke="#7b877f" stroke-width="2" stroke-dasharray="5 4"/>
+<g fill="#dceaf1" stroke="#537484" stroke-width="2"><rect x="435" y="179" width="90" height="25"/><rect x="755" y="179" width="90" height="25"/></g>
+<g fill="none" stroke="#6e8175" stroke-width="3"><path d="M295 157h38m-10-8 10 8-10 8M615 157h38m-10-8 10 8-10 8M806 155l19-22m-13 3 13-3-1 13"/></g>
+<text x="160" y="284" font-size="18">切口位于尖端下方</text><text x="480" y="235" font-size="18">琼脂</text><text x="480" y="284" font-size="18">保持接触一段时间</text><text x="800" y="235" font-size="18">收集后的琼脂</text><text x="800" y="284" font-size="18">后续实验由你们设计</text>
+</g></svg>

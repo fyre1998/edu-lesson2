@@ -5,20 +5,63 @@ const fs=require('node:fs');
 const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'utf8');
 
 function setup(){
-  const elements=new Map(), local=new Map(), calls=[];
-  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){}});return elements.get(s);};
+  const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0;
+  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
-    FormData,setTimeout:()=>1,clearTimeout(){},crypto:require('node:crypto').webcrypto,
+    FormData,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
     sessionStorage:{setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k),getItem:k=>local.get(k)},
     fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'score-bubble.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
-  return{calls,fields,local,el,run:code=>vm.runInContext(code,context)};
+  return{calls,fields,local,el,timers,run:code=>vm.runInContext(code,context)};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+test('teacher summary escapes evidence and hides stale issues',()=>{
+  const a=setup();
+  const data={status:'ready',submitted:1,evaluated:1,group_count:8,updated:null,groups:[{group_id:2,status:'processing'}],
+    result:{overview:'<script>不要执行</script>',issues:[{title:'两侧未比较',detail:'缺少依据',group_ids:[1],suggestion:'怎样比较？',evidence:[{group_id:1,quote:'<img src=x onerror=bad>'}]}],sources:[{group_id:1,revision:3}],discussion:[]}};
+  const html=a.run(`teacherSummaryHTML(${JSON.stringify(data)})`);
+  assert.doesNotMatch(html,/<script>|<img /);assert.match(html,/提交版本 3/);assert.match(html,/第 2 组：正在评价/);
+  data.status='pending';assert.doesNotMatch(a.run(`teacherSummaryHTML(${JSON.stringify(data)})`),/两侧未比较/);
+});
+test('teacher summary ignores late responses after switching lessons and coalesces polling',async()=>{
+  const a=setup();a.run("S.user={role:'teacher'};S.stage=2;S.lesson.flow_version=3;S.seq=1");
+  const first=a.run('refreshTeacherSummary()');await a.run('refreshTeacherSummary()');
+  assert.equal(a.calls.length,1);
+  a.run("S.lesson.id='new-lesson';S.seq=2");const second=a.run('refreshTeacherSummary()');
+  const data={status:'waiting',submitted:0,evaluated:0,group_count:8,groups:[]};
+  a.calls[1].reply(data);await second;
+  const html=a.el('#teacherSummaryBody').innerHTML;
+  a.calls[0].reply({...data,status:'failed'});await first;
+  assert.equal(a.el('#teacherSummaryBody').innerHTML,html);
+  a.run('S.stage=1');await a.run('refreshTeacherSummary()');assert.equal(a.calls.length,2);
+});
+test('two-part result matching updates while typing without replacing the draft',async()=>{
+  const a=setup(); a.run('S.lesson.flow_version=3');
+  a.fields[0].value='还在修改的设计';
+  const refresh=a.run('refreshWork(false)');
+  a.calls[0].reply({work:{revision:0},versions:[{id:'new',revision:1,fields:{},file_ids:[]}],files:[],scores:null,
+    result_match:{version_id:'new',revision:1,status:'ready',matches:[{result_id:'gelatin_separator',image:'/one.png',label:'明胶隔层',excerpt:'学生原话'}],questions:[],uncovered:[]}});
+  await refresh;
+  assert.equal(a.fields[0].value,'还在修改的设计');
+  assert.match(a.el('#assignmentArea').innerHTML,/one.png/);
+  assert.match(a.el('#assignmentArea').innerHTML,/上次提交/);
+});
+test('late result snapshots cannot replace a newer inquiry submission',()=>{
+  const a=setup();a.run("S.lesson.flow_version=3; S.work.versions=[{id:'new',revision:5}];S.work.result_match={version_id:'new'};syncSubmissionResults({versions:[{id:'old',revision:3}],result_match:{version_id:'old'}})");
+  assert.equal(a.run('S.work.result_match.version_id'),'new');
+});
+test('inquiry histories show their own results and scores; stage one has no grading',()=>{
+  const a=setup();a.run('S.lesson.flow_version=3');
+  assert.match(a.run("versionExtras({result_match:{version_id:'a',revision:1,status:'ready',matches:[{image:'/first.png',label:'处理',excerpt:'<script>不执行</script>'}],questions:[],uncovered:[]}})"),/first.png/);
+  assert.doesNotMatch(a.run("matchHTML({status:'ready',revision:1,matches:[{image:'/first.png',label:'处理',excerpt:'<script>不执行</script>'}],questions:[],uncovered:[]})"),/<script>/);
+  assert.match(a.run('presentationScoreHTML({scores:{stages:[]}})'),/本部分不计分/);
+  a.run('S.stage=2');
+  assert.match(a.run("versionExtras({assessment:{status:'ready',total:70,maximum:100,items:[],feedback:null}})"),/70 \/ 100/);
+});
 test('autosave then submission uses the new revision; double click creates one submission',async()=>{
   const a=setup();const draft=a.run('saveWork(false)');await tick();
   const submit=a.run('saveWork(true)');const double=a.run('saveWork(true)');
@@ -96,4 +139,72 @@ test('draft failure unlocks chat and retains the question and selected images',a
   assert.equal(a.calls.length,1);assert.equal(Boolean(a.el('#sendButton').disabled),false);
   assert.equal(a.el('#chatInput').value,'请检查我们的预测');
   assert.equal(a.run('S.images.size'),1);assert.equal(a.run('S.sending'),false);
+});
+
+function presentationSetup(count=8){
+  const a=setup();
+  a.run(`S.user={role:'teacher'};S.lesson.group_count=${count};S.lesson.flow_version=2;S.content.content.fields=[{key:'design',label:'实验设计'}]`);
+  a.el('#presentationDialog').open=true;a.el('#compareLeft').value=1;a.el('#compareRight').value=2;
+  return a;
+}
+function presentedWork(id,status='ready'){
+  return {work:{fields:{design:'尚未提交的修改'},file_ids:[]},versions:[{id:`v${id}`,fields:{design:`第 ${id} 组已提交的实验设计`},file_ids:[],updated:10}],files:[],scores:{stages:[
+    {stage:1,version_id:`v${id}`,status,total:15,maximum:20,items:[{key:'design',label:'实验设计',points:7,maximum:12,reason:'对照条件还需完善'}],feedback:{source:'ai',improvements:[{key:'design',text:`第 ${id} 组请统一观察时间。`}]}},
+    {stage:2,version_id:'other-stage',status:'ready',total:30,maximum:30,items:[],feedback:{improvements:[{text:'不属于当前环节的建议'}]}}
+  ]}};
+}
+function replyPair(a,offset=0,ids=[1,2]){ids.forEach((id,i)=>a.calls[offset+i].reply(presentedWork(id)));}
+
+test('presentation pairs current-stage score and advice with the submitted work, including zero and pending scores',async()=>{
+  const a=presentationSetup();const pending=a.run('compare()');replyPair(a);await pending;
+  const html=a.el('#comparison').innerHTML;
+  assert.match(html,/本环节 15/);assert.match(html,/第 1 组请统一观察时间/);assert.match(html,/第 2 组已提交的实验设计/);
+  assert.doesNotMatch(html,/不属于当前环节|尚未提交的修改/);
+  for(const state of ['pending','processing','failed','model_submitted']){
+    const w=presentedWork(1,state);
+    const result=a.run(`presentationScoreHTML(${JSON.stringify(w)})`);
+    assert.doesNotMatch(result,/本环节 15|第 1 组请统一观察时间/);
+  }
+  const zero=presentedWork(1,'corrected');zero.scores.stages[0].total=0;
+  assert.match(a.run(`presentationScoreHTML(${JSON.stringify(zero)})`),/本环节 0/);
+  zero.scores.stages[0].version_id='previous';
+  assert.doesNotMatch(a.run(`presentationScoreHTML(${JSON.stringify(zero)})`),/本环节 0|第 1 组请统一观察时间/);
+});
+
+test('next pair loops through all groups and a late response cannot overwrite a newer pair',async()=>{
+  const a=presentationSetup();const first=a.run('compare()');const next=a.run('nextComparison()');
+  assert.equal(a.el('#compareLeft').value,3);assert.equal(a.el('#compareRight').value,4);
+  replyPair(a,2,[3,4]);await next;replyPair(a);await first;
+  assert.match(a.el('#comparison').innerHTML,/第 3 组成果与评分/);assert.doesNotMatch(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
+  for(const [offset,ids] of [[4,[5,6]],[6,[7,8]],[8,[1,2]]]){
+    const p=a.run('nextComparison()');replyPair(a,offset,ids);await p;
+    assert.equal(a.el('#compareLeft').value,ids[0]);assert.equal(a.el('#compareRight').value,ids[1]);
+  }
+  const legacy=presentationSetup(6);legacy.el('#compareLeft').value=5;legacy.el('#compareRight').value=6;
+  const p=legacy.run('nextComparison()');replyPair(legacy);await p;
+  assert.equal(legacy.el('#compareLeft').value,1);assert.equal(legacy.el('#compareRight').value,2);
+});
+
+test('automatic switching waits eight seconds per loaded pair, supports pause, and stops on close',async()=>{
+  const a=presentationSetup();a.run('togglePresentationAuto()');
+  assert.equal(a.timers.size,1);let timer=[...a.timers.values()][0];assert.equal(timer.ms,8000);
+  assert.equal(a.calls.length,0);
+  const p=timer.fn();assert.equal(a.el('#compareLeft').value,3);assert.equal(a.timers.size,0);
+  a.run('togglePresentationAuto();togglePresentationAuto()');assert.equal(a.timers.size,0);
+  replyPair(a,0,[3,4]);await p;
+  assert.equal(a.timers.size,1);assert.equal([...a.timers.values()][0].ms,8000);
+  a.run('togglePresentationAuto()');assert.equal(a.timers.size,0);
+  a.run('togglePresentationAuto()');const late=[...a.timers.values()][0].fn();
+  a.run('closePresentation()');assert.equal(a.timers.size,0);assert.equal(a.el('#presentationDialog').open,false);
+  const html=a.el('#comparison').innerHTML;replyPair(a,2,[5,6]);await late;
+  assert.equal(a.el('#comparison').innerHTML,html);assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);
+});
+
+test('a failed pair pauses auto switching and manual refresh recovers',async()=>{
+  const a=presentationSetup();a.run('togglePresentationAuto()');
+  const p=a.run('compare()');a.calls[0].reply({detail:'连接失败'},503);a.calls[1].reply(presentedWork(2));
+  await assert.rejects(p,/连接失败/);assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);
+  assert.match(a.el('#comparison').innerHTML,/读取失败/);
+  const retry=a.run('compare()');replyPair(a,2);await retry;
+  assert.match(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
 });

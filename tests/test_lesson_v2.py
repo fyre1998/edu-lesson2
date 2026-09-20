@@ -15,7 +15,7 @@ from backend import lesson_v2 as v2
 def start(c,monkeypatch,stage=1):
     monkeypatch.setenv('CLASSROOM_CODE','BIO-302');monkeypatch.setenv('CLASSROOM_TEACHER_PASSWORD','teacher-test-password')
     classroom_login(c,teacher=True)
-    r=c.post('/api/classroom/lessons',json={'title':'八组课堂验收'});assert r.status_code==201,r.text
+    r=c.post('/api/classroom/lessons',json={'title':'八组课堂验收','flow_version':2});assert r.status_code==201,r.text
     lid=r.json()['id'];assert r.json()['group_count']==8 and r.json()['flow_version']==2
     if stage>1:assert c.patch(f'/api/classroom/lessons/{lid}',json={'stage':stage}).status_code==200
     return lid
@@ -198,9 +198,20 @@ def test_score_failure_retry_override_and_new_version(env,monkeypatch):
     assert c.put(url,json={'points':correction,'reason':'教师检查发现对照不成立'}).status_code==200
     row=c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()[6]
     assert row['scores']['total']==0 and row['scores']['stages'][0]['items'][0]['ai_points']==4
+    work_url=f'/api/classroom/lessons/{lid}/groups/7/stages/1'
+    work=c.get(work_url).json()
+    assert work['scores']==row['scores']
+    assert work['scores']['stages'][0]['version_id']==work['versions'][-1]['id']
+    assert work['scores']['stages'][0]['feedback']['improvements']
     student(c,7);data['comparison']='本组修订了对照';new=submit(c,lid,1,data,revision=1);assert new.status_code==201
     row=c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()[0]
     assert row['scores']['total']==20 and row['scores']['stages'][0]['version_id']==new.json()['submission_id']
+    work=c.get(work_url).json()
+    assert work['scores']==row['scores']
+    assert work['scores']['stages'][0]['version_id']==work['versions'][-1]['id']
+    assert all('reason' not in i and 'evidence' not in i for i in work['scores']['stages'][0]['items'])
+    student(c,8)
+    assert c.get(work_url).status_code==404
 
 
 def test_model_provenance_conflicts_and_bad_connections(env,monkeypatch):

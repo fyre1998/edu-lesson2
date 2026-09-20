@@ -14,6 +14,7 @@ from sqlalchemy import ForeignKey, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, mapped_column, Session
 
 from . import lesson_v2 as v2
+from . import lesson_v3 as v3
 from .ai_schemas import EXTRACTION_SCHEMA, grading_schema
 from .student_feedback import student_feedback
 
@@ -168,24 +169,42 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
         check_group(user,group_id);lesson=get_lesson(session,lesson_id,4);group_exists(lesson,group_id)
         return [dict(id=e.id,revision=e.revision,file_ids=json.loads(e.file_ids),data=json.loads(e.data),created=e.created) for e in session.scalars(select(Extraction).where(Extraction.lesson_id==lesson_id,Extraction.group_id==group_id).order_by(Extraction.created))]
 
-    def queue_score(session, version, background):
-        chats=chat_rows(session,version.lesson_id,version.group_id,version.stage)
+    def queue_score(session, version, background, flow_version=2):
+        curriculum = v3 if flow_version == 3 else v2
+        chats=[] if flow_version == 3 else chat_rows(session,version.lesson_id,version.group_id,version.stage)
         # Only student utterances are evidence; no assistant text in grading input.
         payload=dict(fields=json.loads(version.data),file_ids=json.loads(version.file_ids),
             student_messages=[dict(id=c.id,text=c.question) for c in chats],
             assignment=assigned(session,version.lesson_id,version.group_id,None),
-            rubric_snapshot=v2.grading_rubric(version.stage),
-            unanswered=sorted(v2.unanswered_items(version.stage,json.loads(version.data),json.loads(version.file_ids))))
-        session.add(Assessment(version_id=version.id,payload=json.dumps(payload,ensure_ascii=False)))
+            rubric_snapshot=curriculum.grading_rubric(version.stage), flow_version=flow_version,
+            unanswered=[] if flow_version == 3 else sorted(v2.unanswered_items(version.stage,json.loads(version.data),json.loads(version.file_ids))))
+        session.add(Assessment(version_id=version.id,rubric_version=curriculum.RUBRIC_VERSION,payload=json.dumps(payload,ensure_ascii=False)))
         background.add_task(run_score,session.get_bind(),version.id)
 
-    async def run_score(bind,version_id):
+    summary_hook = None
+
+    def set_summary_hook(hook):
+        nonlocal summary_hook
+        summary_hook = hook
+
+    async def run_score(bind, version_id):
+        await evaluate_score(bind, version_id)
+        if summary_hook:
+            with Session(bind) as session:
+                version = session.get(Version, version_id)
+                lesson_id = version.lesson_id if version else None
+            if lesson_id:
+                await summary_hook(bind, lesson_id)
+
+    async def evaluate_score(bind,version_id):
         async with grading_slots:
             with Session(bind) as s:
                 a=s.get(Assessment,version_id);v=s.get(Version,version_id)
                 if not a or a.status=='ready': return
                 a.status='processing';a.updated=int(time.time());s.commit()
                 payload=json.loads(a.payload)
+                is_v3 = payload.get('flow_version') == 3
+                is_mutant = is_v3 and a.rubric_version == v3.RUBRIC_VERSION
                 # Retries use the rubric frozen at submission, even after configuration updates.
                 rubric=payload.pop('rubric_snapshot',None) or (v2.RUBRIC[v.stage] if a.rubric_version=='auxin-4x8-1' else v2.grading_rubric(v.stage))
                 unanswered=set(payload.pop('unanswered',[]))
@@ -210,10 +229,25 @@ strengths列出有依据的所有优点，包括部分得分项目中做对的�
 improvements全次只选最值得先改的1至2点，按重要性排序；每条只针对一个问题，给一个可执行的修改动作或启发性问题，不在一条中用编号、分号或长句塞入多个不足。满分且无不足时返回空数组，不强行挑错。可先改已尝试的内容，选填空项不要求一次补齐。
 学生反馈不得包含教师完整量规、标准答案、其他项目的扣分清单或后续环节知识；不要把每个reason复制给学生。每条最多240字，关联对应项目key。修改建议不直接代写实验或替学生给出结论。
 返回纯JSON {"items":[{"key":"项目key","points":0,"missing":true,"evidence":[],"reason":"教师依据"}],"feedback":{"strengths":[{"key":"项目key","text":"学生已有优点"}],"improvements":[{"key":"项目key","text":"一个修改动作"}]} }，items项目必须与量规完全一致。量规：'''+json.dumps(rubric,ensure_ascii=False)
+                    if is_v3:
+                        system = system.rsplit('量规：', 1)[0] + (v3.SCORING_RULES if is_mutant else v3.LEGACY_SCORING_RULES) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
                     allowed={'field:'+k for k in payload['fields']}|{'chat:'+str(c['id']) for c in payload['student_messages']}|{'file:'+fid for fid in ids}
-                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=grading_schema(rubric, allowed))
+                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=(v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed))
                     result=v2.parse_json(raw);items=result['items']
                     if len(items)!=len(rubric) or {i['key'] for i in items}!={r[0] for r in rubric}: raise ValueError()
+                    if is_v3:
+                        if type(result['readable']) is not bool or not isinstance(result['clarification'], str) or len(result['clarification']) > 240:
+                            raise ValueError()
+                        components = result['treatment_parts']
+                        limits = v3.PART_LIMITS if is_mutant else {'removed_tip': 10, 'decapitated_seedling': 10, 'lateral_placement': 20}
+                        if not isinstance(components, dict) or set(components) != set(limits) or any(type(components[k]) is not int or not 0 <= components[k] <= cap for k, cap in limits.items()):
+                            raise ValueError()
+                        next(i for i in items if i['key'] == 'treatment')['points'] = sum(components.values())
+                        if not result['readable']:
+                            if not result['clarification'].strip(): raise ValueError()
+                            a.result=json.dumps({'clarification': result['clarification']},ensure_ascii=False)
+                            a.status='needs_clarification';a.error='';a.updated=int(time.time());s.commit()
+                            return
                     for item in items:
                         r=next(r for r in rubric if r[0]==item['key'])
                         if item['key'] in unanswered:
@@ -231,41 +265,65 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                     a.status='failed';a.error='评分暂未完成，可重试或由教师评分';a.updated=int(time.time());s.commit()
 
     def scores(session,lesson,group,user):
-        if config(lesson)[0]!=2: return None
+        if config(lesson)[0] not in (2, 3): return None
+        curriculum = v3 if config(lesson)[0] == 3 else v2
         result=[]
-        for stage,rubric in v2.RUBRIC.items():
+        for stage,rubric in curriculum.RUBRIC.items():
             v=session.scalar(select(Version).where(Version.lesson_id==lesson.id,Version.group_id==group,Version.stage==stage).order_by(Version.revision.desc()))
-            a=session.get(Assessment,v.id) if v else None
-            if a:
-                rubric = json.loads(a.payload).get('rubric_snapshot') or rubric
-            original=json.loads(a.result) if a else {};correction=json.loads(a.correction) if a else {}
-            originals={i['key']:i for i in original.get('items',[])}
-            items=[]
-            for key,label,maximum,_ in rubric:
-                old=originals.get(key);points=correction.get('points',{}).get(key,old['points'] if old else None)
-                i=dict(key=key,label=label,maximum=maximum,points=points,missing=old.get('missing',False) if old and not correction else False,
-                       hint='')
-                if user.role=='teacher': i.update(reason=old.get('reason','') if old else '',evidence=old.get('evidence',[]) if old else [],ai_points=old.get('points') if old else None)
-                items.append(i)
-            entry=dict(stage=stage,version_id=v.id if v else None,revision=v.revision if v else None,status='corrected' if correction else a.status if a else 'model_submitted' if v and json.loads(v.data).get('phase') == 'model' else 'unsubmitted',
-                       items=items,total=sum(i['points'] or 0 for i in items) if any(i['points'] is not None for i in items) else None,maximum=sum(r[2] for r in rubric))
-            entry['feedback'] = student_feedback(original.get('feedback'), items, corrected=bool(correction)) if entry['total'] is not None else None
-            if user.role=='teacher':entry.update(correction=correction,error=a.error if a else '',rubric_version=a.rubric_version if a else v2.RUBRIC_VERSION)
+            entry = score_entry(session, v, stage, rubric, curriculum, user)
+            assessment = session.get(Assessment, v.id) if v else None
+            if curriculum is v3 and assessment and assessment.rubric_version != v3.RUBRIC_VERSION:
+                # Old Went-task marks remain in version history, not the new task's total.
+                entry.update(status='previous_task', total=None, feedback=None)
+                entry['items'] = [dict(key=r[0], label=r[1], maximum=r[2], points=None,
+                                       missing=False, hint='') for r in rubric]
             result.append(entry)
         return dict(stages=result,total=sum(r['total'] or 0 for r in result),graded=sum(r['total'] is not None for r in result),maximum=100)
 
+    def score_entry(session, v, stage, rubric, curriculum, user):
+        a=session.get(Assessment,v.id) if v else None
+        if a:
+            rubric = json.loads(a.payload).get('rubric_snapshot') or rubric
+        original=json.loads(a.result) if a else {};correction=json.loads(a.correction) if a else {}
+        originals={i['key']:i for i in original.get('items',[])}
+        items=[]
+        for key,label,maximum,_ in rubric:
+            old=originals.get(key);points=correction.get('points',{}).get(key,old['points'] if old else None)
+            i=dict(key=key,label=label,maximum=maximum,points=points,missing=old.get('missing',False) if old and not correction else False,
+                   hint='')
+            if user.role=='teacher': i.update(reason=old.get('reason','') if old else '',evidence=old.get('evidence',[]) if old else [],ai_points=old.get('points') if old else None)
+            items.append(i)
+        entry=dict(stage=stage,version_id=v.id if v else None,revision=v.revision if v else None,status='corrected' if correction else a.status if a else 'model_submitted' if v and json.loads(v.data).get('phase') == 'model' else 'unsubmitted',
+                   items=items,total=sum(i['points'] or 0 for i in items) if any(i['points'] is not None for i in items) else None,maximum=sum(r[2] for r in rubric))
+        entry['feedback'] = student_feedback(original.get('feedback'), items, corrected=bool(correction)) if entry['total'] is not None else None
+        entry['clarification'] = original.get('clarification', '')
+        entry['updated'] = a.updated if a else None
+        if user.role=='teacher':entry.update(correction=correction,error=a.error if a else '',rubric_version=a.rubric_version if a else curriculum.RUBRIC_VERSION)
+        return entry
+
+    def version_score(session, version, user):
+        lesson = session.get(Lesson, version.lesson_id)
+        if config(lesson)[0] != 3 or version.stage != 2:
+            return None
+        return score_entry(session, version, 2, v3.RUBRIC[2], v3, user)
+
     @router.post('/lessons/{lesson_id}/assessments/{version_id}/retry')
     def retry(lesson_id:str,version_id:str,background:BackgroundTasks,user=Depends(identity),session=Depends(db)):
-        teacher(user);get_lesson(session,lesson_id,write=True)
+        lesson=get_lesson(session,lesson_id,write=True)
         a=session.get(Assessment,version_id);v=session.get(Version,version_id)
         if not a or not v or v.lesson_id!=lesson_id: raise HTTPException(404,'评分不存在')
+        if user.role != 'teacher':
+            if config(lesson)[0] != 3: teacher(user)
+            check_group(user, v.group_id)
+        if a.status == 'needs_clarification':
+            raise HTTPException(409, '请补充可辨认的设计后重新提交')
         if a.status=='ready' or (a.status in ('processing','pending') and int(time.time())-a.updated<180):raise HTTPException(409,'评分已完成或正在处理')
         a.status='pending';a.updated=int(time.time());session.commit()
         background.add_task(run_score,session.get_bind(),version_id)
         return {'status':'pending'}
 
     @router.put('/lessons/{lesson_id}/assessments/{version_id}')
-    def correct(lesson_id:str,version_id:str,body:ScoreCorrection,user=Depends(identity),session=Depends(db)):
+    def correct(lesson_id:str,version_id:str,body:ScoreCorrection,background:BackgroundTasks,user=Depends(identity),session=Depends(db)):
         teacher(user);get_lesson(session,lesson_id,write=True)
         a=session.get(Assessment,version_id);v=session.get(Version,version_id)
         if not a or not v or v.lesson_id!=lesson_id:raise HTTPException(404,'评分不存在')
@@ -274,11 +332,15 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
         correction=dict(points=body.points,reason=body.reason,author=user.name,created=int(time.time()))
         record_event(session,lesson_id,user,'score_correction',dict(version_id=version_id,before=json.loads(a.correction),after=correction),v.group_id)
         a.correction=json.dumps(correction,ensure_ascii=False);session.commit()
+        if summary_hook: background.add_task(summary_hook, session.get_bind(), lesson_id)
         return correction
 
     @router.get('/lessons/{lesson_id}/teaching-guide')
     def teaching_guide(lesson_id:str,user=Depends(identity),session=Depends(db)):
-        teacher(user);get_lesson(session,lesson_id)
+        teacher(user);lesson=get_lesson(session,lesson_id)
+        if config(lesson)[0] == 3:
+            return dict(prompts={k:v3.guide(k) for k in v3.STAGES}, rubric={k:v3.grading_rubric(k) for k in v3.RUBRIC},
+                        version=v3.RUBRIC_VERSION, matching={k: value[0] for k,value in v3.RESULTS.items()})
         return dict(prompts={k:v2.guide(k) for k in v2.STAGES},went_original=v2.WENT_PROMPT,rubric={k:v2.grading_rubric(k) for k in v2.STAGES},version=v2.RUBRIC_VERSION)
 
     def guidance_context(session,lid,gid,stage):
@@ -309,6 +371,7 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
     def request_key(body,gid):
         return hashlib.sha256(f'{body.lesson_id}:{gid}:{body.stage}:{body.request_id}'.encode()).hexdigest()
 
-    return SimpleNamespace(validate_model=validate_model,queue_score=queue_score,scores=scores,
+    return SimpleNamespace(Assessment=Assessment,set_summary_hook=set_summary_hook,validate_model=validate_model,queue_score=queue_score,scores=scores,
+        version_score=version_score,picture_parts=picture_parts,
         guidance_context=guidance_context,finish_guidance=finish_guidance,guard=guard,
         ChatRequest=ChatRequest,request_key=request_key)

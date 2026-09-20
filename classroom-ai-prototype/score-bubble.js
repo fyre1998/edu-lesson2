@@ -25,7 +25,7 @@ function studentFeedbackHTML(score) {
 }
 function renderStudentScore(scores) {
   const bubble = $('#studentScoreBubble');
-  if (!S.user || isTeacher() || !S.lesson || S.lesson.flow_version !== 2 || !scores) {
+  if (!S.user || isTeacher() || !S.lesson || ![2, 3].includes(S.lesson.flow_version) || !scores) {
     resetScoreBubble(); return;
   }
   let score = scores.stages.find(s => s.stage === S.stage);
@@ -39,15 +39,15 @@ function renderStudentScore(scores) {
   }
   const context = `${S.user.groupId}:${S.lesson.id}:${S.stage}`;
   const completed = ['ready', 'corrected'].includes(score.status);
-  const result = completed ? JSON.stringify([score.version_id, score.status, score.total, score.feedback]) : '';
+  const result = (completed || ['needs_clarification','failed'].includes(score.status)) ? JSON.stringify([score.version_id, score.status, score.total, score.feedback]) : '';
   if (bubble.dataset.context !== context) {
     bubble.dataset.context = context;
     bubble.dataset.result = '';
-    setScoreBubbleExpanded(completed);
+    setScoreBubbleExpanded(completed || score.status === 'needs_clarification' || score.status === 'failed');
   }
   if (result && bubble.dataset.result !== result) setScoreBubbleExpanded(true);
   bubble.dataset.result = result;
-  bubble.dataset.editable = String(completed && S.lesson.status === 'live');
+  bubble.dataset.editable = String((completed || score.status === 'needs_clarification') && S.lesson.status === 'live');
   show('#scoreBubbleActions', bubble.dataset.editable === 'true' && !bubble.classList.contains('is-collapsed'));
   show('#studentScoreBubble', true);
   $('#scoreBubbleStage').textContent = `环节 ${S.stage} · ${scoreStatus[score.status] || score.status}`;
@@ -56,18 +56,20 @@ function renderStudentScore(scores) {
   const snapshot = JSON.stringify([context, score, scores.total, scores.graded, draftChanged, S.lesson.status]);
   if (bubble.dataset.snapshot === snapshot) return;
   const messages = {
+    previous_task:'此前温特实验任务的成绩已保留在历史记录。请提交研究水稻突变体的新方案，获得本次评价。',
     unsubmitted:'提交本组成果后，分数和评价会一直留在这里。',
     model_submitted:'模型图已保存。完成姓名放置与讨论后，提交完整成果即可评分。',
     pending:'成果已收到，正在排队评分。完成后会自动展示反馈。',
     processing:'AI 正在阅读你们的成果，评分与反馈即将出现在这里。',
-    failed:'成果已保存，评分暂未完成。请老师在观察台点击“重试评分”，无需重复提交。'
+    needs_clarification:esc(score.clarification || '请补充清晰的设计照片后再次提交。'),
+    failed:S.lesson.flow_version===3?'成果已保存，评分暂未完成，可重试，无需重复提交。':'成果已保存，评分暂未完成。请老师在观察台点击“重试评分”，无需重复提交。'
   };
   const visibleScores = scores.stages.map(s => s.stage === S.stage ? score : s);
   const total = visibleScores.some(s => s.total !== null) ? visibleScores.reduce((n,s) => n + (s.total || 0), 0) : '—';
   $('#studentScore').innerHTML = `<div class="bubble-total">本组累计 <strong>${total} / 100</strong></div>
     ${completed ? `<p class="feedback-version">${draftChanged ? '已修改，待再次提交。以下仍是上次提交的评价。' : '针对本环节最新提交的评价'}</p>${studentFeedbackHTML(score)}
       <details class="feedback-breakdown"><summary>查看分项得分</summary>${score.items.map(i => `<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points ?? '—'} / ${i.maximum}</strong></div>`).join('')}</details>
-      ${S.lesson.status === 'live' ? '<p class="fine feedback-footnote">改好后再次提交，即可获得新评分；每次提交都会保留。</p>' : '<p class="fine">本课已归档，可查看评价与历次成果。</p>'}` : `<p class="feedback-waiting" role="status">${messages[score.status] || '正在同步评分…'}</p>`}`;
+      ${S.lesson.status === 'live' ? '<p class="fine feedback-footnote">改好后再次提交，即可获得新评分；每次提交都会保留。</p>' : '<p class="fine">本课已归档，可查看评价与历次成果。</p>'}` : `<p class="feedback-waiting" role="status">${messages[score.status] || '正在同步评分…'}</p>${isInquiry()&&S.lesson.status==='live'&&(['failed'].includes(score.status)||(['pending','processing'].includes(score.status)&&Date.now()/1000-score.updated>=180))?`<button type="button" data-inquiry-score-retry="${esc(score.version_id)}">重试评分</button>`:''}`}`;
   bubble.dataset.snapshot = snapshot;
 }
 function reviseScoredWork() {

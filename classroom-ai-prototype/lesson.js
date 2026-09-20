@@ -7,6 +7,7 @@ const S = {user:null, roster:null, role:'student', lessons:[], lesson:null, stag
   work:null, material:null, edit:0, savedEdit:0, loading:false, syncing:false, uploading:false, sending:false,
   pending:null, images:new Map(), seq:0, lastTeacherStage:1, saveChain:Promise.resolve(), draftTimer:null, submitAttempt:null};
 let toastTimer;
+const presentation = {request:0, timer:null, auto:false, loading:false};
 function toast(text) { $('#toast').textContent=text; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000); }
 function show(id, visible) { $(id).classList.toggle('hidden',!visible); }
 function isTeacher() { return S.user?.role==='teacher'; }
@@ -22,6 +23,8 @@ async function api(path, options={}) {
   return data;
 }
 function reset() {
+  closePresentation();
+  $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel();
   S.seq++; S.user=null; S.lesson=null; S.content=null; S.work=null; S.pending=null; S.images.clear();
@@ -49,13 +52,14 @@ function lessonOptions() {
   if(S.lesson) $('#lessonSelect').value=S.lesson.id;
 }
 async function loadLessons(preferred) {
+  closePresentation();
   resetScoreBubble();
   S.lessons=await api('/lessons');
   S.lesson=S.lessons.find(l=>l.id===preferred)||S.lessons.find(l=>l.status==='live')||S.lessons[0]||null;
   lessonOptions(); show('#emptyState',!S.lesson); show('#lessonSurface',!!S.lesson);
   if(!S.lesson) {
     $('#stageNav').innerHTML='';
-    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>蓝光怎样引起菜豆向光生长？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="生长素探究课"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
+    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>突变体为什么不能明显向光弯曲？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="生长素探究课"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
     return;
   }
   S.lastTeacherStage=S.lesson.stage;
@@ -63,6 +67,8 @@ async function loadLessons(preferred) {
   await loadStage(S.lesson.stage);
 }
 async function loadStage(stage) {
+  closePresentation();
+  $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel(); S.modelNotice=''; S.selectedScientist=null;
   const seq=++S.seq, lessonId=S.lesson.id; S.loading=true; S.pending=null; S.images.clear(); S.submitAttempt=null;
@@ -86,12 +92,12 @@ function renderFrame() {
   $('#questionTitle').textContent=content.question;
   show('#lessonReadOnly',S.lesson.status==='archived');
   $('#groupBadge').textContent=isTeacher()?'教师观察台':`第 ${S.user.groupId} 组`;
-  $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes} 分钟${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');
+  $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes?`${s.minutes} 分钟`:'教师推进'}${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');
   show('#studentWorkspace',!isTeacher()); show('#teacherWorkspace',isTeacher()); show('#teacherControls',isTeacher());
   show('#lessonMaterials',!isTeacher());
   if(isTeacher()) {
     const live=S.lesson.status==='live';
-    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version!==2&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
+    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${S.lesson.flow_version!==3&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
   }
 }
 function materialHTML(m) {
@@ -105,16 +111,39 @@ function renderMaterials() {
 }
 function renderStudent() {
   renderMaterials();
-  $('#submissionTask').textContent=S.content.content.task+' 所有项目均为选填，未作答的对应项目不计分。';
+  $('#submissionTask').textContent=S.content.content.task+(isInquiry()?' 可填写文字或上传照片，至少提供一项。':' 所有项目均为选填，未作答的对应项目不计分。');
   $('#modelTools')?.remove();
   $('#workFields').innerHTML='<section id="modelTools" class="hidden"></section>'+S.content.content.fields.map(fieldHTML).join('');
   $('#workFields').classList.toggle('location-fields',S.lesson.flow_version===2&&S.stage===1);
   show('#generalAttachments',!isModel());
+  $('#fileInput').accept=isInquiry()?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
   $('#saveStatus').textContent=S.work.work.updated?'已保存 · '+stamp(S.work.work.updated):'草稿自动保存';
   renderExtras();
 }
 function assignmentHTML(a) {
   return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(a.image)}" target="_blank" rel="noopener"><img src="${esc(a.image)}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
+}
+function isInquiry() { return S.lesson?.flow_version===3; }
+function matchStatus(m) {
+  if(!m)return '提交简要思路后获取结果图';
+  return {pending:'等待匹配结果图',processing:'正在匹配结果图',ready:`已匹配 ${m.matches.length} 张图`,needs_clarification:'请补充关键处理',unmatched:'暂无对应参考图',failed:'匹配暂未完成，可重试'}[m.status]||'正在同步';
+}
+function matchHTML(m,actions=true) {
+  if(!m)return '<p class="notice">提交简要思路或任务单照片后，将在这里显示对应的实验结果参考图。本部分不计分。</p>';
+  const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
+  return `<section class="inquiry-results" aria-label="本次提交的实验结果参考图"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.map(item=>`<figure class="inquiry-result"><figcaption><span class="kind">教师提供的实验结果参考图</span><h3>${esc(item.label)}</h3><p>对应思路：${esc(item.excerpt)}</p></figcaption><a href="${esc(item.image)}" target="_blank" rel="noopener"><img src="${esc(item.image)}" alt="${esc(item.label)}的教师原图" loading="lazy"></a></figure>`).join('')}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应参考图：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
+}
+function versionExtras(v) {
+  if(!isInquiry())return '';
+  if(S.stage===1)return matchHTML(v.result_match);
+  const score=v.assessment;
+  if(!score)return '';
+  return `<section class="version-assessment"><h4>本次评价 · ${esc(scoreStatus[score.status]||score.status)}</h4>${score.total!==null?`<strong>${score.total} / ${score.maximum}</strong>${studentFeedbackHTML(score)}<div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} ${i.points??'—'} / ${i.maximum}</span>`).join('')}</div>`:''}${score.clarification?`<p class="notice">${esc(score.clarification)}</p>`:''}</section>`;
+}
+function syncSubmissionResults(work) {
+  // Poll results without overwriting a draft that the student is still typing.
+  if((work.versions?.at(-1)?.revision||0)<(S.work.versions?.at(-1)?.revision||0))return;
+  S.work.versions=work.versions; S.work.result_match=work.result_match; S.work.scores=work.scores;
 }
 function assignmentLocksDesign(a) { return !!a && a.design_locked!==false; }
 function assignmentNotice() {
@@ -123,7 +152,7 @@ function assignmentNotice() {
 }
 function renderExtras() {
   const w=S.work, archived=S.lesson.status!=='live';
-  $('#assignmentArea').innerHTML=w.assignment?assignmentHTML(w.assignment):S.stage===(S.lesson.assignment_stage||2)?`<p class="notice">${assignmentNotice()}</p>`:'';
+  $('#assignmentArea').innerHTML=isInquiry()?(S.stage===1?matchHTML(w.result_match)+(w.result_match&&(S.edit!==S.savedEdit||w.work.revision>w.result_match.revision)?'<p class="fine">以下结果对应上次提交，修改后请再次提交。</p>':''):''):w.assignment?assignmentHTML(w.assignment):S.stage===(S.lesson.assignment_stage||2)?`<p class="notice">${assignmentNotice()}</p>`:'';
   $$('[data-field]').forEach(el=>el.disabled=archived || S.submitting || (assignmentLocksDesign(w.assignment) && ['treatment','design','prediction'].includes(el.dataset.field)));
   $$('[data-voice-field]').forEach(b=>b.disabled=archived||S.submitting||$('#field-'+b.dataset.voiceField)?.disabled);
   if(w.assignment) $('#assignmentArea').insertAdjacentHTML('beforeend',assignmentLocksDesign(w.assignment)?(S.lesson.flow_version===2?'<p class="fine">原始实验设计已保留，可在对话中讨论结果与修改意见。</p>':'<p class="fine">原始方案与预测已保留。请在结果分析中记录新的解释或修改意见。</p>'):'<p class="fine">已收到本组预期结果，可以继续完成实验设计，并在对话中讨论结果。</p>');
@@ -133,12 +162,19 @@ function renderExtras() {
   $('#workState').textContent=count?(w.work.revision>last.revision?'已修改，待提交':'已提交'):w.work.revision?'草稿未提交':'未开始';
   if(isModel()&&last?.fields.phase==='model')$('#workState').textContent='模型已提交，待讨论';
   show('#submitRow',true);
-  $('#submitButton').textContent=isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
+  $('#submitButton').textContent=isInquiry()?(S.stage===1?'提交思路并获取结果图':'提交设计并评分'):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
   $('#versionCount').textContent=count?`（${count} 次）`:'';
+  if(isInquiry()&&S.stage===1&&w.result_match&&['ready','needs_clarification','unmatched','failed'].includes(w.result_match.status)) {
+    const notice=`${S.lesson.id}:${w.result_match.version_id}:${w.result_match.status}`;
+    if(S.matchNotice!==notice) {
+      S.matchNotice=notice;
+      if(S.edit===S.savedEdit)$('#conversationScroll').scrollTop=0;
+    }
+  }
   if(typeof renderModel==='function')renderModel();
   if(typeof renderScores==='function')renderScores();
   if($('#activityFeed'))$('#activityFeed').innerHTML=w.files.map(f=>`<div class="activity-receipt">已上传 · ${esc(f.name)}</div>`).join('')+w.versions.map((v,i)=>`<div class="activity-receipt">✓ ${v.fields.phase==='model'?'模型图已提交':v.fields.phase==='discussion'?'讨论答案已提交':`第 ${i+1} 次成果已提交`} · ${stamp(v.updated)}</div>`).join('');
-  $('#versionsBody').innerHTML=count?w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次提交 · ${stamp(v.updated)}</h3><p class="fine">${esc(v.author)}</p>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}</article>`).join(''):'<p class="fine">提交后，原始记录与后续修改会显示在这里。</p>';
+  $('#versionsBody').innerHTML=count?w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次提交 · ${stamp(v.updated)}</h3><p class="fine">${esc(v.author)}</p>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join(''):'<p class="fine">提交后，原始记录与后续修改会显示在这里。</p>';
 }
 function fileHTML(f,actions=false) {
   const url='/api/classroom/files/'+encodeURIComponent(f.id), included=S.work?.work.file_ids.includes(f.id);
@@ -149,7 +185,7 @@ function fieldsHTML(fields, projection=false) {
   if(projection && S.stage===(S.lesson.assignment_stage||2))list.sort((a,b)=>(a.key==='conclusion'?-1:b.key==='conclusion'?1:0));
   if(isModel()&&fields.model_files)return pictureModelHTML(fields)+`<h3>未达预期结果后的讨论答案</h3><p class="answer-text">${esc(fields.discussion||(fields.phase==='model'?'待放置姓名后讨论':fileIds(fields,'discussion_files').length?'见下方答案图片':'尚未填写'))}</p>`+pictureAnswersHTML(fields);
   if(isModel())return modelHTML(fields)+ '<dl>'+list.filter(f=>!['sense','substance','elongation',...modelFields()].includes(f.key)).map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(fields[f.key]||'尚未填写')}</dd>`).join('')+'</dl>';
-  return '<dl>'+list.map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(f.options?.[fields[f.key]]||fields[f.key]||'尚未填写')}</dd>`).join('')+'</dl>';
+  return `<dl${projection?' class="comparison-fields"':''}>`+list.map(f=>`${projection?`<div class="comparison-field ${f.input==='short'?'is-short':''}">`:''}<dt>${esc(f.label)}</dt><dd>${esc(f.options?.[fields[f.key]]||fields[f.key]||'尚未填写')}</dd>${projection?'</div>':''}`).join('')+'</dl>';
 }
 function versionFiles(ids,files) {
   return ids.map(id=>files.find(f=>f.id===id)).filter(Boolean).map(f=>f.preview?`<a href="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img class="record-image" src="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:fileHTML(f)).join('');
@@ -210,6 +246,7 @@ async function refreshWork(replaceFields=false) {
   if(seq!==S.seq || !S.user || group!==(isTeacher()?S.group:S.user.groupId)) return;
   if(isTeacher()) { S.work=work; renderDetail(); return; }
   if(S.edit===S.savedEdit && work.work.revision>=S.work.work.revision) { S.work=work; if(replaceFields) renderStudent(); else renderExtras(); }
+  else if(isInquiry()) { syncSubmissionResults(work); renderExtras(); }
   else if(JSON.stringify(S.work.assignment)!==JSON.stringify(work.assignment)) { S.work.assignment=work.assignment; renderExtras(); }
 }
 async function poll() {
@@ -237,24 +274,58 @@ async function poll() {
       if(S.edit===S.savedEdit && !S.submitting && w.work.revision>=S.work.work.revision) {
         const revisionChanged=w.work.revision!==S.work.work.revision;
         S.work=w;
-        if(revisionChanged) renderStudent(); else if(JSON.stringify(w.assignment)!==$('#assignmentArea').dataset.snapshot || reveal) renderExtras();
+        if(revisionChanged) renderStudent(); else if(isInquiry() || JSON.stringify(w.assignment)!==$('#assignmentArea').dataset.snapshot || reveal) renderExtras();
         $('#assignmentArea').dataset.snapshot=JSON.stringify(w.assignment);
       }
+      else if(isInquiry()) { syncSubmissionResults(w); renderExtras(); }
       else if(JSON.stringify(S.work.assignment)!==JSON.stringify(w.assignment)) { S.work.assignment=w.assignment; renderExtras(); }
     }
     renderChat(); renderScores(); $('#syncStatus').textContent='已同步 · '+new Date().toLocaleTimeString('zh-CN');
   } catch(e) { $('#syncStatus').textContent='同步失败，可手动刷新'; }
   finally { S.syncing=false; }
 }
-function workPreview(fields){
+function workPreview(fields,attachments=[]){
   if(isModel()&&fields.model_files)return `模型图 ${fileIds(fields,'model_files').length} 张 · 姓名 ${connectionList(fields).length} 处 · 讨论答案 ${fileIds(fields,'discussion_files').length} 张${fields.discussion?' · 已填写讨论':''}`;
-  return S.content.content.fields.filter(f=>!f.hidden&&fields[f.key]).map(f=>`${f.label}：${fields[f.key]}`).join('；')||'等待本组记录观察与思考。';
+  return S.content.content.fields.filter(f=>!f.hidden&&fields[f.key]).map(f=>`${f.label}：${fields[f.key]}`).join('；')||(attachments.length?`已上传 ${attachments.length} 份附件，点击查看。`:'等待本组记录观察与思考。');
 }
+
+let summaryPendingKey = '', summaryRequest = 0;
+function teacherSummaryHTML(data) {
+  const labels = {unsubmitted:'尚未提交',pending:'等待评价',processing:'正在评价',failed:'评价失败',needs_clarification:'图片待补充',previous_task:'旧任务提交',ready:'已评价',corrected:'教师已复核'};
+  const counts = `<p class="fine">已提交 ${data.submitted} / ${data.group_count} 组 · 本次可分析 ${data.evaluated} 组${data.updated?' · 更新于 '+esc(stamp(data.updated)):''}</p>`;
+  const waiting = data.groups.filter(g=>!['ready','corrected'].includes(g.status));
+  const pending = waiting.length?`<p class="fine">${waiting.map(g=>`第 ${g.group_id} 组：${esc(labels[g.status]||g.status)}`).join('；')}。这些小组暂不归入设计问题。</p>`:'';
+  const statuses = {waiting:'等待各组提交并完成评价。',pending:'已有新提交，正在更新汇总。',processing:'AI 正在归纳各组最新方案。',failed:'AI 汇总暂未完成，各组设计与评价已保留。'};
+  if(data.status!=='ready'||!data.result) return `${counts}<p role="status">${esc(statuses[data.status]||'正在更新汇总。')}</p>${pending}${data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':''}`;
+  const result=data.result;
+  return `${counts}<p>${esc(result.overview)}</p>${result.issues.length?result.issues.map(issue=>`<article class="summary-issue"><h3>${esc(issue.title)} <span class="fine">${issue.group_ids.length} 组</span></h3><div class="summary-groups">${issue.group_ids.map(g=>`<button type="button" data-summary-group="${g}">第 ${g} 组</button>`).join('')}</div><p>${esc(issue.detail)}</p><p><strong>课堂追问：</strong>${esc(issue.suggestion)}</p><details><summary>查看归纳依据</summary>${issue.evidence.map(e=>{const source=result.sources.find(s=>s.group_id===e.group_id);return `<p>第 ${e.group_id} 组 · 提交版本 ${source?.revision??'—'}：${esc(e.quote)}</p>`;}).join('')}</details></article>`).join(''):'<p>当前可分析方案中，尚无有充分依据的设计问题需要归类。</p>'}${result.discussion.length?`<div class="summary-discussion"><h3>建议全班交流</h3><ol>${result.discussion.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></div>`:''}${pending}`;
+}
+async function refreshTeacherSummary() {
+  const enabled=isTeacher()&&isInquiry()&&S.stage===2;
+  show('#teacherSummary',enabled);
+  if(!enabled) { summaryRequest++;summaryPendingKey='';return; }
+  const key=`${S.lesson.id}:${S.seq}`;
+  if(summaryPendingKey===key)return;
+  const panel=$('#teacherSummaryBody');
+  if(panel.dataset.context!==key){panel.dataset.context=key;panel.dataset.snapshot='';panel.innerHTML='<p class="fine">正在读取各组设计汇总……</p>';}
+  const request=++summaryRequest,seq=S.seq;
+  summaryPendingKey=key;
+  try {
+    const data=await api(base()+'/design-summary');
+    if(request!==summaryRequest||seq!==S.seq||!isTeacher()||S.stage!==2)return;
+    const html=teacherSummaryHTML(data);
+    if(panel.dataset.snapshot!==html){panel.innerHTML=html;panel.dataset.snapshot=html;}
+  } catch(e) {
+    if(request===summaryRequest&&seq===S.seq) {panel.innerHTML=`<p class="fine">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`;panel.dataset.snapshot='';}
+  } finally {if(request===summaryRequest)summaryPendingKey='';}
+}
+
 function renderTeacher() {
+  void refreshTeacherSummary();
   $('#overviewSummary').textContent=`${S.groups.filter(g=>g.status==='已提交').length} / ${S.lesson.group_count} 组已提交 · 状态来自本环节成果`;
   if(S.stage===S.lesson.assignment_stage&&S.lesson.release_results)$('#overviewSummary').textContent+=` · ${S.groups.filter(g=>g.assignment).length} / ${S.lesson.group_count} 组已分发预期结果`;
   const ranked=[...S.groups].filter(g=>g.scores?.graded).sort((a,b)=>b.scores.total-a.scores.total);
-  $('#groupGrid').innerHTML=S.groups.map(g=>`<button class="group-card ${g.id===S.group?'selected':''}" data-group="${g.id}"><header><strong>第 ${g.id} 组</strong><span class="state">${esc(g.status)}</span></header><p>${esc(workPreview(g.work.fields))}</p>${g.scores?`<div class="group-score">${g.scores.graded?g.scores.total:'—'} <small>/ 100</small><span>${g.scores.graded?'第 '+(1+ranked.filter(x=>x.scores.total>g.scores.total).length)+' 名':'待评分'}</span></div><div class="stage-dots">${g.scores.stages.map(r=>`<span title="环节${r.stage} ${scoreStatus[r.status]}">${r.stage} · ${r.total??'—'}</span>`).join('')}</div>`:''}<footer>${g.submission_count} 次提交 · ${g.chats.length} 轮讨论</footer></button>`).join('');
+  $('#groupGrid').innerHTML=S.groups.map(g=>`<button class="group-card ${g.id===S.group?'selected':''}" data-group="${g.id}"><header><strong>第 ${g.id} 组</strong><span class="state">${esc(g.status)}</span></header><p>${esc(workPreview(g.work.fields,g.work.file_ids))}</p>${isInquiry()&&S.stage===1?`<p class="fine">${esc(matchStatus(g.result_match))}</p>`:g.scores?`<div class="group-score">${g.scores.graded?g.scores.total:'—'} <small>/ 100</small><span>${g.scores.graded?'第 '+(1+ranked.filter(x=>x.scores.total>g.scores.total).length)+' 名':esc(scoreStatus[g.scores.stages.find(s=>s.stage===S.stage)?.status]||'待评分')}</span></div><div class="stage-dots">${g.scores.stages.map(r=>`<span title="环节${r.stage} ${scoreStatus[r.status]}">${r.stage} · ${r.total??'—'}</span>`).join('')}</div>`:''}<footer>${g.submission_count} 次提交 · ${g.chats.length} 轮讨论</footer></button>`).join('');
   $$('#groupGrid [data-group]').forEach(b=>{const g=S.groups.find(g=>g.id===Number(b.dataset.group));b.setAttribute('aria-label',`第 ${g.id} 组，${g.status}`);});
   const materialSnapshot=JSON.stringify([S.stage,S.content.materials]);
   if($('#teacherMaterials').dataset.snapshot!==materialSnapshot) {
@@ -268,7 +339,7 @@ function renderDetail() {
   const snapshot=JSON.stringify([S.stage,g,w,S.lesson.release_results,S.lesson.status]);
   if($('#groupDetail').dataset.snapshot===snapshot)return;
   const openStates=$$('#groupDetail details').map(d=>d.open);
-  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length} 轮）</summary>${chatsHTML(g.chats)}</details></div>`;
+  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length} 轮）</summary>${chatsHTML(g.chats)}</details></div>`;
   $$('#groupDetail details').forEach((d,i)=>d.open=openStates[i]||false);
   $('#groupDetail').dataset.snapshot=snapshot;
 }
@@ -346,16 +417,85 @@ async function uploadFiles(files) {
   finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(isModel()&&seq===S.seq)renderExtras(); }
 }
 async function present(left) {
+  stopPresentation();
   $('#compareLeft').innerHTML=$('#compareRight').innerHTML=S.roster.groups.filter(g=>g.id<=S.lesson.group_count).map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');
   $('#compareLeft').value=left||S.group; $('#compareRight').value=(Number(left||S.group)%S.lesson.group_count)+1;
-  $('#presentationTitle').textContent=S.content.content.question;
+  $('#presentationTitle').textContent=`环节 ${S.stage} · ${S.content.content.question}`;
   $('#presentationDialog').showModal(); await compare();
 }
 async function compare() {
-  const seq=S.seq, ids=[$('#compareLeft').value,$('#compareRight').value];
-  $('#comparison').innerHTML='<p class="loading">正在读取小组成果…</p>';
-  const data=await Promise.all(ids.map(g=>api(base()+`/groups/${g}/stages/${S.stage}`))); if(seq!==S.seq) return;
-  $('#comparison').innerHTML=data.map((w,i)=>{const v=w.versions.at(-1);return `<section><h3>第 ${ids[i]} 组</h3><p class="fine">${v?'展示最近提交 · '+stamp(v.updated):'本组尚未提交，以下为草稿'}</p>${w.assignment?.adjusted_at>=v?.updated?'<p class="notice">提交后教师调整过情境，以下解释可能基于先前结果，需重新核对。</p>':''}${assignmentHTML(w.assignment)}${fieldsHTML((v||w.work).fields,true)}${versionFiles((v||w.work).file_ids,w.files)}</section>`;}).join('');
+  if(!$('#presentationDialog').open)return;
+  clearTimeout(presentation.timer); presentation.timer=null;
+  const request=++presentation.request, seq=S.seq, ids=[$('#compareLeft').value,$('#compareRight').value];
+  presentation.loading=true; renderPresentationControls();
+  $('#comparison').innerHTML='<p class="loading" role="status">正在读取小组成果与评分…</p>';
+  try {
+    const data=await Promise.all(ids.map(g=>api(base()+`/groups/${g}/stages/${S.stage}`)));
+    if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
+    $('#comparison').innerHTML=data.map((w,i)=>{
+      const v=w.versions.at(-1), record=v||w.work;
+      // Model and discussion images are already rendered with their annotations.
+      const pictureIds=isModel()?[...fileIds(record.fields,'model_files'),...fileIds(record.fields,'discussion_files')]:[];
+      return `<section aria-label="第 ${ids[i]} 组成果与评分"><header class="comparison-heading"><h3>第 ${ids[i]} 组</h3><p class="fine">${v?'展示最近提交 · '+stamp(v.updated):'本组尚未提交，以下为草稿'}</p></header>${presentationScoreHTML(w)}<div class="comparison-work" tabindex="0" aria-label="第 ${ids[i]} 组成果，可滚动查看">${w.assignment?.adjusted_at>=v?.updated?'<p class="notice">提交后教师调整过情境，以下解释可能基于先前结果，需重新核对。</p>':''}${isInquiry()&&S.stage===1?matchHTML(v?.result_match,false):assignmentHTML(w.assignment)}${fieldsHTML(record.fields,true)}${versionFiles(record.file_ids.filter(id=>!pictureIds.includes(id)),w.files)}</div></section>`;
+    }).join('');
+  } catch(e) {
+    if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
+    presentation.auto=false;
+    $('#comparison').innerHTML='<p class="notice" role="alert">成果与评分读取失败，自动切换已暂停。请点击“更新展示”重试。</p>';
+    throw e;
+  } finally {
+    if(request===presentation.request) {
+      presentation.loading=false; renderPresentationControls(); schedulePresentation();
+    }
+  }
+}
+function presentationScoreHTML(work) {
+  if(isInquiry()&&S.stage===1)return '<div class="comparison-score"><p class="fine">本部分不计分 · 比较实验思路与对应结果</p></div>';
+  if(!work.scores)return '<div class="comparison-score"><p class="fine">本课次未启用积分评分。</p></div>';
+  const score=work.scores.stages.find(s=>s.stage===S.stage), latest=work.versions.at(-1);
+  if(!score || (score.version_id||null)!==(latest?.id||null))return '<div class="comparison-score"><p class="fine">成果已有更新，请点击“更新展示”同步对应评分。</p></div>';
+  const completed=['ready','corrected'].includes(score.status), feedback=completed?score.feedback:null;
+  const suggestions=feedback?.improvements?.slice(0,2)||[];
+  const source=feedback?.source==='score_summary'?'以下为按得分整理的提示。':feedback?.source==='teacher_review'?'以下提示按教师复核后的分数整理。':'';
+  return `<div class="comparison-score"><div class="comparison-score-heading"><strong>本环节 ${completed?score.total??'—':'—'} <small>/ ${score.maximum}</small></strong><span class="state">${esc(scoreStatus[score.status]||score.status)}</span></div>${completed?`<div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} <strong>${i.points??'—'} / ${i.maximum}</strong></span>`).join('')}</div><div class="comparison-feedback"><h4>改进建议</h4>${source?`<p class="fine">${source}</p>`:''}${suggestions.length?`<ol>${suggestions.map(i=>`<li>${esc(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'本次提交已达到本环节要求，暂无需要改进的项目。':'本次评分暂无改进建议，可查看教师评分说明。'}</p>`}<details><summary>评分说明</summary>${score.items.map(i=>`<p><strong>${esc(i.label)}：</strong>${esc(i.reason||'暂无详细说明')}</p>`).join('')}${score.correction?.reason?`<p><strong>教师复核：</strong>${esc(score.correction.reason)}</p>`:''}</details></div>`:`<p class="fine">${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':score.status==='unsubmitted'?'尚未提交成果，暂无评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}</div>`;
+}
+function renderPresentationControls() {
+  $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（8 秒）';
+  $('#compareAuto').setAttribute('aria-pressed',String(presentation.auto));
+  $('#compareAuto').classList.toggle('primary',presentation.auto);
+  $('#compareNext').disabled=S.lesson?.group_count<2;
+  $('#compareAuto').disabled=S.lesson?.group_count<2;
+  $('#compareStatus').textContent=presentation.auto?(presentation.loading?'自动切换中 · 正在读取…':'自动切换中 · 每 8 秒展示下一对小组'):'手动切换 · 到末组后循环展示';
+}
+function schedulePresentation() {
+  clearTimeout(presentation.timer); presentation.timer=null;
+  if(presentation.auto && !presentation.loading && $('#presentationDialog').open) {
+    presentation.timer=setTimeout(()=>nextComparison().catch(e=>toast(e.message)),8000);
+  }
+}
+function togglePresentationAuto() {
+  presentation.auto=!presentation.auto; renderPresentationControls(); schedulePresentation();
+}
+async function nextComparison() {
+  if(!$('#presentationDialog').open || !S.lesson)return;
+  const count=S.lesson.group_count;
+  for(const id of ['#compareLeft','#compareRight'])$(id).value=(Number($(id).value)-1+2)%count+1;
+  await compare();
+}
+function stopPresentation() {
+  clearTimeout(presentation.timer); presentation.timer=null;
+  presentation.request++; presentation.auto=false; presentation.loading=false;
+  renderPresentationControls();
+}
+function closePresentation() {
+  stopPresentation();
+  const dialog=$('#presentationDialog');
+  if(dialog.open)dialog.close();
+  if(document.fullscreenElement===dialog)document.exitFullscreen()?.catch(()=>{});
+}
+function dismissLessonMaterials(event) {
+  const materials=$('#lessonMaterials');
+  if(materials.open && !materials.contains(event.target))materials.open=false;
 }
 async function legacy() {
   $('#historyDialog').showModal(); $('#historyBody').innerHTML='<p>正在读取…</p>';
@@ -381,6 +521,7 @@ $('#logoutButton').addEventListener('click',async()=>{if(!await flush())return;t
 $('#lessonSelect').addEventListener('change',async e=>{const id=e.target.value;if(!await flush()){lessonOptions();return;}await loadLessons(id).catch(e=>toast(e.message));});
 $('#stageNav').addEventListener('click',async e=>{const b=e.target.closest('[data-stage]');if(!b||b.disabled)return;if(await flush())await loadStage(Number(b.dataset.stage)).catch(()=>{});});
 $('#materialTabs').addEventListener('click',e=>{const b=e.target.closest('[data-material]');if(b){S.material=b.dataset.material;renderMaterials();}});
+document.addEventListener('click',dismissLessonMaterials,true);
 $('#workFields').addEventListener('input',e=>{if(!e.target.matches('[data-field]'))return;markDirty();});$('#workFields').addEventListener('change',e=>{if(e.target.matches('select'))markDirty();});
 $('#workForm').addEventListener('submit',async e=>{e.preventDefault();if(S.uploading||S.extracting)return toast('请先等待上传或识别完成');await submitFinalWork();});
 $('#saveButton').addEventListener('click',()=>saveWork(false));
@@ -393,16 +534,35 @@ $('#chatAttachments').addEventListener('click',e=>{const b=e.target.closest('[da
 $('#refreshButton').addEventListener('click',async()=>{if(!await flush())return;try{if(S.lesson)await loadStage(S.stage);else await loadLessons();}catch{}});
 $('#emptyState').addEventListener('click',e=>{if(e.target.closest('#createLessonButton'))createLesson().catch(e=>toast(e.message));});
 $('#teacherControls').addEventListener('click',async e=>{const id=e.target.closest('button')?.id;if(!id)return;try{if(id==='openStage')await control({stage:Number($('#teacherStage').value)});if(id==='releaseResults')await control({release_results:true});if(id==='revealResearch')await control({reveal_research:true});if(id==='archiveLesson'&&confirm('归档后本课只能查看，所有成果保留。确定归档？'))await control({status:'archived'});if(id==='newLessonButton')await createLesson();if(id==='presentButton')await present();}catch(err){toast(err.message);}});
+$('#teacherSummary').addEventListener('click',async e=>{try{const group=e.target.closest('[data-summary-group]');if(group){S.group=Number(group.dataset.summaryGroup);await refreshWork();renderTeacher();$('#groupDetail').scrollIntoView({behavior:'smooth',block:'start'});}const retry=e.target.closest('[data-summary-retry]');if(retry){retry.disabled=true;await api(base()+'/design-summary/retry',{method:'POST'});await refreshTeacherSummary();}}catch(err){toast(err.message);const retry=e.target.closest('[data-summary-retry]');if(retry)retry.disabled=false;}});
 $('#groupGrid').addEventListener('click',async e=>{const b=e.target.closest('[data-group]');if(!b)return;S.group=Number(b.dataset.group);await refreshWork().catch(e=>toast(e.message));renderTeacher();});
 $('#groupDetail').addEventListener('click',e=>{const b=e.target.closest('[data-present-group]');if(b)present(Number(b.dataset.presentGroup)).catch(e=>toast(e.message));if(e.target.closest('#adjustButton'))adjust().catch(e=>toast(e.message));});
 $('#adjustTreatment').addEventListener('change',()=>scenarioOptions().catch(e=>toast(e.message)));$('#adjustVariant').addEventListener('change',renderScenarioPreview);
 $('#adjustForm').addEventListener('submit',async e=>{e.preventDefault();try{await api(base()+'/assignments',{method:'POST',body:{group_id:S.group,treatment:$('#adjustTreatment').value,variant:Number($('#adjustVariant').value),reason:$('#adjustReason').value}});$('#adjustDialog').close();await refreshWork();await refreshEvents();}catch(err){toast(err.message);}});
-$('#cancelAdjust').addEventListener('click',()=>$('#adjustDialog').close());$('#closePresentation').addEventListener('click',()=>$('#presentationDialog').close());$('#compareRefresh').addEventListener('click',()=>compare().catch(e=>toast(e.message)));['#compareLeft','#compareRight'].forEach(id=>$(id).addEventListener('change',()=>compare().catch(e=>toast(e.message))));$('#fullscreenButton').addEventListener('click',()=>{const p=document.fullscreenElement?document.exitFullscreen():$('#presentationDialog').requestFullscreen();p?.catch(()=>toast('浏览器未进入全屏，可使用 F11。'));});
+$('#cancelAdjust').addEventListener('click',()=>$('#adjustDialog').close());
+$('#closePresentation').addEventListener('click',closePresentation);
+$('#presentationDialog').addEventListener('close',()=>{if(!$('#presentationDialog').open)closePresentation();});
+$('#presentationDialog').addEventListener('cancel',e=>{e.preventDefault();closePresentation();});
+$('#compareRefresh').addEventListener('click',()=>compare().catch(e=>toast(e.message)));
+$('#compareNext').addEventListener('click',()=>nextComparison().catch(e=>toast(e.message)));
+$('#compareAuto').addEventListener('click',togglePresentationAuto);
+['#compareLeft','#compareRight'].forEach(id=>$(id).addEventListener('change',()=>compare().catch(e=>toast(e.message))));$('#fullscreenButton').addEventListener('click',()=>{const p=document.fullscreenElement?document.exitFullscreen():$('#presentationDialog').requestFullscreen();p?.catch(()=>toast('浏览器未进入全屏，可使用 F11。'));});
 $('#legacyButton').addEventListener('click',()=>legacy().catch(e=>toast(e.message)));$('#closeHistory').addEventListener('click',()=>$('#historyDialog').close());
 window.addEventListener('beforeunload',e=>{globalThis.lessonVoice?.cancel();if(S.edit!==S.savedEdit||S.uploading||S.sending){localDraft();e.preventDefault();e.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)globalThis.lessonVoice?.cancel();if(document.hidden&&S.user&&!isTeacher()&&S.edit!==S.savedEdit)saveWork(false);});
 async function boot() {try{S.roster=await api('/roster');$('#loginGroup').innerHTML=S.roster.groups.map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');names();try{await activate(await api('/me'));}catch(e){if(e.status!==401)$('#loginError').textContent=e.message;}}catch(e){$('#loginError').textContent='课堂服务暂时无法连接，请刷新后重试。';}}
 installWidgets();
+document.addEventListener('click',async e=>{
+  const match=e.target.closest('[data-match-retry]'),score=e.target.closest('[data-inquiry-score-retry]');
+  if(!match&&!score)return;
+  const button=match||score,seq=S.seq;
+  button.disabled=true;
+  try {
+    await api(base()+(match?`/matches/${encodeURIComponent(match.dataset.matchRetry)}/retry`:`/assessments/${encodeURIComponent(score.dataset.inquiryScoreRetry)}/retry`),{method:'POST'});
+    if(seq!==S.seq)return;
+    toast('已请求重试，完成后会自动更新。');await refreshWork();
+  }catch(error){if(seq===S.seq)toast(error.message);}finally{button.disabled=false;}
+});
 const voiceContext=()=>S.user&&S.lesson?`${S.user.groupId}:${S.lesson.id}:${S.stage}:${S.seq}`:'';
 globalThis.lessonVoice=createVoiceInput({getContext:voiceContext,
   transcribe:async(blob,context,signal)=>{const body=new FormData();body.append('file',blob,'speech');body.append('lesson_id',S.lesson.id);body.append('stage',S.stage);body.append('request_id',crypto.randomUUID());return (await api('/transcriptions',{method:'POST',body,signal})).text;},

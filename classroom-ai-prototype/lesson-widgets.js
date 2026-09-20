@@ -43,7 +43,7 @@ function pictureTarget(){return isModel()?(collectFields().phase==='discussion'?
 function choosePicture(target,capture=false){
   if(busy()||S.lesson.status!=='live')return;
   S.uploadTarget=target;
-  $('#fileInput').accept=target?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
+  $('#fileInput').accept=(target||isInquiry())?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
   if(capture)camera.open();else $('#fileInput').click();
 }
 function registerPicture(id,target){
@@ -93,22 +93,23 @@ function addConnection(target){
   const list=connectionList(collectFields());if(!list.some(x=>x.scientist===S.selectedScientist&&x.target===target))list.push({scientist:S.selectedScientist,target});
   $('#field-connections').value=JSON.stringify(list);markDirty();renderModel();
 }
-const scoreStatus={unsubmitted:'未提交',model_submitted:'模型已提交，待讨论',pending:'待评分',processing:'评分中',failed:'待重试',ready:'已评分',corrected:'教师已复核'};
+const scoreStatus={previous_task:'旧任务已保留，请提交新方案',unsubmitted:'未提交',model_submitted:'模型已提交，待讨论',needs_clarification:'请补充清晰设计',pending:'待评分',processing:'评分中',failed:'待重试',ready:'已评分',corrected:'教师已复核'};
 function scoreHTML(scores,teacher=false){
+  if(isInquiry()&&S.stage===1)return '<p class="fine">第一部分不计分，提交后获取对应结果图。</p>';
   if(!scores)return '';
   const stages=teacher?scores.stages:scores.stages.filter(s=>s.stage===S.stage);
-  const heading=teacher?`<div class="score-heading"><strong>本组积分 ${scores.graded?scores.total:'—'} <small>/ 100</small></strong><span class="fine">${scores.graded} / 4 环节已有评分</span></div>`:'';
-  return `${heading}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ${teacher&&s.stage===S.stage&&s.total!==null?'open':''}><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${s.total??'—'} / ${s.maximum} · ${scoreStatus[s.status]||s.status}</summary>${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
+  const heading=teacher?`<div class="score-heading"><strong>本组积分 ${scores.graded?scores.total:'—'} <small>/ 100</small></strong><span class="fine">${scores.graded} / ${scores.stages.length} 个计分环节已有评分</span></div>`:'';
+  return `${heading}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ${teacher&&s.stage===S.stage&&s.total!==null?'open':''}><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${s.total??'—'} / ${s.maximum} · ${scoreStatus[s.status]||s.status}</summary>${s.clarification?`<p class="notice">${esc(s.clarification)}</p>`:''}${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
 }
 function renderScores(){
   const g=S.groups.find(g=>g.id===(isTeacher()?S.group:S.user?.groupId));
-  renderStudentScore(g?.scores);
+  renderStudentScore(!isTeacher()&&isInquiry()?S.work?.scores||g?.scores:g?.scores);
   for(const [id,teacher] of [['#teacherScore',true]]){
     const el=$(id);if(!el||(teacher&&!isTeacher()))continue;
     const snapshot=JSON.stringify([S.stage,g?.id,g?.scores,teacher]);if(el.dataset.scoreSnapshot===snapshot)continue;
     const states=new Map($$(id+' details').map(d=>[d.dataset.scoreStage,d.open]));el.innerHTML=scoreHTML(g?.scores,teacher);
     $$(id+' details').forEach(d=>{if(states.has(d.dataset.scoreStage))d.open=states.get(d.dataset.scoreStage);});el.dataset.scoreSnapshot=snapshot;
-    if(teacher&&g?.scores)g.scores.stages.forEach(s=>{if(s.correction?.reason){const items=$$(id+' details')[s.stage-1]?.querySelectorAll('.score-item');items?.forEach((el,i)=>{const p=document.createElement('small');p.textContent='AI 原评分：'+(s.items[i].ai_points??'未完成');el.append(p);});}});
+    if(teacher&&g?.scores)g.scores.stages.forEach(s=>{if(s.correction?.reason){const items=$$(id+' details').find(d=>Number(d.dataset.scoreStage)===s.stage)?.querySelectorAll('.score-item');items?.forEach((el,i)=>{const p=document.createElement('small');p.textContent='AI 原评分：'+(s.items[i].ai_points??'未完成');el.append(p);});}});
   }
 }
 function editScore(id){
@@ -133,5 +134,5 @@ function installWidgets(){
   $('#groupDetail').addEventListener('click',async e=>{const edit=e.target.closest('[data-score-edit]'),retry=e.target.closest('[data-score-retry]');if(edit)editScore(edit.dataset.scoreEdit);if(retry)try{await api(base()+`/assessments/${retry.dataset.scoreRetry}/retry`,{method:'POST'});toast('已请求重新评分');await poll();}catch(err){toast(err.message);}});
   $('#scoreCancel').addEventListener('click',()=>$('#scoreDialog').close());
   $('#scoreForm').addEventListener('submit',async e=>{e.preventDefault();try{await api(base()+`/assessments/${$('#scoreVersion').value}`,{method:'PUT',body:{points:Object.fromEntries($$('[data-score-key]').map(i=>[i.dataset.scoreKey,Number(i.value)])),reason:$('#scoreReason').value}});$('#scoreDialog').close();await poll();await refreshEvents();}catch(err){toast(err.message);}});
-  $('#teachingGuide').addEventListener('click',async()=>{try{const guide=await api(base()+'/teaching-guide');$('#historyBody').innerHTML=Object.entries(guide.prompts).map(([stage,p])=>`<details><summary>环节 ${stage} 提示词</summary><pre>${esc(p)}</pre></details>`).join('')+`<details><summary>温特原始提示词</summary><pre>${esc(guide.went_original)}</pre></details><h3>评分量规</h3><pre>${esc(JSON.stringify(guide.rubric,null,2))}</pre>`;$('#historyDialog').showModal();}catch(e){toast(e.message);}});
+  $('#teachingGuide').addEventListener('click',async()=>{try{const guide=await api(base()+'/teaching-guide');$('#historyBody').innerHTML=Object.entries(guide.prompts).map(([stage,p])=>`<details><summary>环节 ${stage} 提示词</summary><pre>${esc(p)}</pre></details>`).join('')+`${guide.went_original?`<details><summary>温特原始提示词</summary><pre>${esc(guide.went_original)}</pre></details>`:''}${guide.matching?`<h3>教师原图匹配表</h3><pre>${esc(JSON.stringify(guide.matching,null,2))}</pre>`:''}<h3>评分量规</h3><pre>${esc(JSON.stringify(guide.rubric,null,2))}</pre>`;$('#historyDialog').showModal();}catch(e){toast(e.message);}});
 }

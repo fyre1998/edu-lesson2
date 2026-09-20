@@ -9,6 +9,28 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 
 .material-figure img{max-height:300px;object-fit:contain}.teacher-materials .material-figure img{max-height:240px}
 .comparison .assignment{padding:14px;margin:12px 0}.comparison .assignment img{height:220px;object-fit:contain}.comparison .assignment p{font-size:.87rem;margin:7px 0}.comparison dl{margin-top:14px}.comparison dd{margin-bottom:14px}
+.presentation-dialog[open]{display:flex;flex-direction:column;height:96dvh;max-height:96dvh;overflow:hidden;padding:20px}
+.presentation-top .eyebrow{margin-bottom:6px}.presentation-top h2{font-size:1.5rem;margin-bottom:6px}
+.presentation-top,.compare-controls{flex-shrink:0}.presentation-top .actions{flex-shrink:0}
+.compare-controls{gap:10px 14px;margin:8px 0 12px}.compare-controls select{width:110px}
+.comparison{flex:1;min-height:0;align-items:stretch;gap:20px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.comparison>section{display:flex;flex-direction:column;min-height:0;padding:18px;overflow:hidden}
+.comparison-heading{flex-shrink:0}.comparison-heading h3{font-size:1.35rem;margin:0 0 4px}.comparison-heading p{font-size:.75rem;margin:0 0 8px}
+.comparison-score{flex-shrink:0;max-height:46%;overflow:auto;padding:10px 12px;background:#f1f6fc;border:1px solid #d5e2f1;border-radius:10px;overflow-wrap:anywhere}
+.comparison-score-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.comparison-score-heading>strong{font-size:1.4rem}.comparison-score-heading small{font-size:.95rem;font-weight:400}
+.comparison-points{display:flex;gap:6px 15px;flex-wrap:wrap;margin-top:8px;font-size:.82rem}.comparison-points strong{white-space:nowrap}
+.comparison-feedback{margin-top:10px;border-top:1px solid #d5e2f1;padding-top:8px}.comparison-feedback h4{margin:0 0 4px;font-size:1rem}
+.comparison-feedback ol{padding-left:1.4em;margin:0}.comparison-feedback li+li{margin-top:5px}.comparison-feedback li,.comparison-feedback p{font-size:.92rem;line-height:1.65}
+.comparison-feedback p{margin:4px 0}.comparison-feedback .fine{font-size:.78rem}.comparison-feedback summary{padding:6px 0;font-size:.8rem}
+.comparison-work{flex:1;min-height:0;overflow:auto;margin-top:12px;padding-right:6px;scrollbar-gutter:stable;overscroll-behavior:contain}
+.comparison-work:focus-visible{outline:2px solid var(--blue);outline-offset:2px}.comparison-work>:first-child{margin-top:0}
+.comparison-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px}.comparison-field{grid-column:1/-1;min-width:0}.comparison-field.is-short{grid-column:auto}
+.comparison-fields dt{margin:0 0 4px;font-size:1rem}.comparison-fields dd{margin:0;font-size:1.05rem}
+.presentation-dialog:fullscreen{height:100dvh;max-height:none}
+@media(max-width:820px){.presentation-dialog{padding:16px}.comparison-score{padding:10px}.compare-controls{margin-bottom:12px}.comparison-score-heading>strong{font-size:1.15rem}}
+@media(max-width:580px){.presentation-dialog[open]{height:96dvh;overflow:auto}.presentation-top{flex-wrap:wrap;gap:10px}.presentation-top h2{margin-bottom:0}.compare-controls label{font-size:.85rem}.compare-controls select{width:88px}.comparison{flex:none;display:grid;grid-template-columns:1fr}.comparison>section{height:75dvh;min-height:440px}.comparison-score{max-height:52%}}
+@media print{.presentation-dialog[open]{display:block;height:auto;max-height:none;overflow:visible}.comparison{display:grid;grid-template-columns:1fr 1fr}.comparison>section{height:auto;overflow:visible}.comparison-score{max-height:none;overflow:visible}.comparison-work{overflow:visible}}
 
 /* The conversation is the permanent classroom surface; work scrolls separately. */
 .main-grid.with-ai{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(310px,1fr);gap:22px;align-items:start}
@@ -141,3 +163,16 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 @media(max-width:820px){.score-bubble{right:12px;bottom:12px;width:370px;max-height:58dvh}.score-bubble.is-collapsed{width:310px}.score-bubble-toggle{min-height:68px;padding:10px 12px}.score-bubble-body{padding:12px 14px}.student-view #workspace{padding-bottom:80px}}
 @media(max-width:580px){.score-bubble{right:8px;bottom:8px;max-width:calc(100vw - 16px);max-height:60dvh}.score-bubble.is-collapsed{width:280px}.score-bubble.is-collapsed .score-bubble-toggle{min-height:58px}.score-bubble-icon{width:26px;height:26px;font-size:20px}.score-bubble-points{font-size:1.16rem}.score-bubble-label strong{font-size:.84rem}}
 @media(max-width:820px){.score-bubble.is-left{left:12px;right:auto}}
+/* Two-part inquiry: preserve source image proportions and keep versions distinct. */
+.inquiry-results { margin: 12px 0; }
+.inquiry-result { margin: 14px 0 22px; padding-bottom: 14px; border-bottom: 1px solid var(--line, #dbe3db); }
+.inquiry-result h3 { margin: 8px 0; font-size: 16px; }
+.inquiry-result p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.inquiry-result img { display: block; width: auto; max-width: 100%; max-height: 380px; height: auto; object-fit: contain; margin: 10px auto; }
+.comparison .inquiry-result img { max-height: 480px; }
+.version-assessment { padding: 14px 0; }
+.version-assessment h4 { margin: 0 0 10px; }
+
+.teacher-summary{margin-bottom:22px;padding:22px}.teacher-summary h3{font-size:1rem;margin:0 0 10px}.summary-issue{border-top:1px solid var(--line);padding:18px 0 10px}.summary-issue p{font-size:.9rem;line-height:1.8;margin:8px 0}.summary-groups{display:flex;flex-wrap:wrap;gap:6px}.summary-groups button{min-height:32px;padding:4px 10px;font-size:.8rem}.summary-issue details{margin-top:7px}.summary-issue details p{color:var(--muted);overflow-wrap:anywhere}.summary-discussion{background:var(--surface);padding:16px;border-radius:10px;margin-top:12px}.summary-discussion li{line-height:1.8;margin-bottom:5px}@media(max-width:580px){.teacher-summary{padding:15px}.teacher-summary .panel-heading{flex-wrap:wrap;gap:8px}}
+
+#teacherSummaryBody{max-height:560px;overflow-y:auto;padding-right:8px}

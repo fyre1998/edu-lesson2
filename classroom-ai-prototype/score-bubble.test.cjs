@@ -21,7 +21,7 @@ function setup(){
   const S={user:{role:'student',groupId:1},lesson:{id:'lesson',flow_version:2,status:'live'},stage:1,edit:0,savedEdit:0,
     work:{work:{revision:1},versions:[{id:'v1',revision:1,fields:{}}]}};
   const context=vm.createContext({S,$:el,$$:()=>[],show:(id,on)=>el(id).classList.toggle('hidden',!on),
-    isTeacher:()=>S.user?.role==='teacher',esc:s=>String(s??'').replaceAll('<','&lt;').replaceAll('>','&gt;'),
+    isTeacher:()=>S.user?.role==='teacher',isInquiry:()=>S.lesson?.flow_version===3,esc:s=>String(s??'').replaceAll('<','&lt;').replaceAll('>','&gt;'),
     scoreStatus:{ready:'已评分',pending:'待评分'},scores:{stages:[score],total:12,graded:1}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'score-bubble.js'),'utf8'),context);
   return {S,score,el,run:code=>vm.runInContext(code,context)};
@@ -48,6 +48,13 @@ test('draft edits label the assessment as previous and cannot erase the advice',
   const a=setup();a.S.edit=1;a.run('renderStudentScore(scores)');
   assert.match(a.el('#studentScore').innerHTML,/已修改，待再次提交/);
   assert.match(a.el('#studentScore').innerHTML,/明确观察什么变化/);
+});
+
+test('legacy task marks stay in history while the new task asks for a new submission',()=>{
+  const a=setup();a.S.lesson.flow_version=3;a.score.status='previous_task';a.score.total=null;
+  a.run('renderStudentScore(scores)');
+  assert.match(a.el('#studentScore').innerHTML,/请提交研究水稻突变体的新方案/);
+  assert.doesNotMatch(a.el('#studentScore').innerHTML,/保留透明罩对照/);
 });
 test('feedback text is escaped and displayed improvements never exceed two',()=>{
   const a=setup();a.score.feedback.strengths[0].text='<img src=x onerror=attack()>';

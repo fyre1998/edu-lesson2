@@ -49,6 +49,18 @@ test('capture keeps JPEG for confirmation and stops the camera immediately', asy
   assert.match(app.accepted[0].name, /\.jpg$/);
   assert.equal(app.elements.get('cameraDialog').open, false);
 });
+
+test('camera describes automatic AI submission while keeping retake and cancel before confirmation', async () => {
+  const app = setup(async () => fakeStream());
+  app.camera.open({confirmText:'确认并交给 AI',readyText:'确认后照片自动交给 AI。'});await settle();
+  await app.elements.get('cameraShutter').fire('click');
+  assert.equal(app.elements.get('cameraConfirm').textContent,'确认并交给 AI');
+  assert.equal(app.elements.get('cameraStatus').textContent,'确认后照片自动交给 AI。');
+  assert.equal(app.accepted.length,0);
+  app.camera.close();assert.equal(app.accepted.length,0);
+  app.camera.open();await settle();
+  assert.equal(app.elements.get('cameraConfirm').textContent,'确认上传');
+});
 test('late permission after close cannot leave the camera running', async () => {
   let resolve;
   const app = setup(() => new Promise(done => { resolve = done; }));

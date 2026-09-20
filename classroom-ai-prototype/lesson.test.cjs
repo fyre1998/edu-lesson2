@@ -5,21 +5,95 @@ const fs=require('node:fs');
 const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'utf8');
 
 function setup(){
-  const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0;
+  const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0,cameraOptions;
   const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
-    FormData,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
+    FormData,Blob,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
+    createCameraCapture:options=>{cameraOptions=options;return {open(){},close(){}};},
     sessionStorage:{setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k),getItem:k=>local.get(k)},
-    fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
+    fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body instanceof FormData?options.body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'score-bubble.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
+  vm.runInContext(source.slice(source.indexOf('const camera='),source.indexOf("\n$('#loginGroup')")),context);
   vm.runInContext(source.slice(source.indexOf("$('#chatForm').addEventListener"),source.indexOf("$('#quickPrompts').addEventListener")),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
-  return{calls,fields,local,el,timers,run:code=>vm.runInContext(code,context)};
+  return{calls,fields,local,el,timers,camera:cameraOptions,run:code=>vm.runInContext(code,context)};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+
+function photoSetup(stage=1){
+  const a=setup();a.run(`S.lesson.flow_version=3;S.stage=${stage};S.edit=S.savedEdit=0`);
+  return a;
+}
+const photo=()=>new File(['photo bytes'],'实验照片.jpg',{type:'image/jpeg'});
+const storedPhoto={id:'photo-1',name:'实验照片.jpg',size:11,preview:true,uploader:'第 1 组'};
+function photoWork(){
+  return {work:{revision:1,updated:10,fields:{},file_ids:['photo-1']},files:[storedPhoto],versions:[{id:'v1',revision:1,fields:{},file_ids:['photo-1'],updated:10}],assignment:null};
+}
+
+for(const stage of [1,2])test(`camera confirmation automatically submits the photo in stage ${stage} exactly once`,async()=>{
+  const a=photoSetup(stage),file=photo();
+  const pending=a.camera.onConfirm(file);
+  assert.equal(a.calls.length,1);assert.ok(a.calls[0].body instanceof FormData);
+  assert.equal(a.calls[0].body.get('file').name,'实验照片.jpg');
+  await a.camera.onConfirm(file);assert.equal(a.calls.length,1);
+  a.calls[0].reply(storedPhoto,201);await tick();
+  assert.equal(a.calls.length,2);assert.match(a.calls[1].url,new RegExp(`/stages/${stage}/submissions$`));
+  assert.deepEqual([...a.calls[1].body.file_ids],['photo-1']);assert.ok(a.calls[1].body.request_id);
+  assert.equal(a.calls.filter(c=>c.url.endsWith('/chats')||c.url.endsWith('/work')).length,0);
+  a.calls[1].reply({revision:1,updated:10,submission_id:'v1'},201);await tick();
+  a.calls[2].reply(photoWork());assert.equal(await pending,true);
+  assert.match(a.el('#toast').textContent,/照片已自动提交给 AI/);
+  assert.equal(a.run('S.uploading'),false);assert.equal(a.run('S.submitting'),false);
+  assert.equal(Boolean(a.el('#chatCamera').disabled),false);
+});
+
+test('failed automatic submission keeps the uploaded photo and reuses its request ID on retry',async()=>{
+  const a=photoSetup(),pending=a.camera.onConfirm(photo());
+  a.calls[0].reply(storedPhoto,201);await tick();const request=a.calls[1].body.request_id;
+  a.calls[1].reply({detail:'网络暂时不可用'},503);
+  assert.equal(await pending,true);assert.match(a.el('#toast').textContent,/无需重拍或再次上传/);
+  assert.deepEqual([...a.run('S.work.work.file_ids')],['photo-1']);
+  const retry=a.run('saveWork(true)');await tick();
+  assert.equal(a.calls[2].body.request_id,request);assert.deepEqual([...a.calls[2].body.file_ids],['photo-1']);
+  a.calls[2].reply({revision:1,updated:10,submission_id:'v1'},201);await tick();a.calls[3].reply(photoWork());await retry;
+  assert.equal(a.calls.filter(c=>c.body instanceof FormData).length,1);
+});
+
+test('failed upload does not submit and a late upload cannot submit into another stage',async()=>{
+  const a=photoSetup(),pending=a.camera.onConfirm(photo());
+  a.calls[0].reply({detail:'上传失败'},503);assert.equal(await pending,false);assert.equal(a.calls.length,1);
+  const late=a.camera.onConfirm(photo());a.run('S.seq++;S.stage=2');a.calls[1].reply(storedPhoto,201);
+  assert.equal(await late,false);assert.equal(a.calls.length,2);assert.equal(a.run('S.work.work.file_ids.length'),0);
+});
+
+test('a saved photo submission with a failed refresh does not ask for another submission',async()=>{
+  const a=photoSetup(),pending=a.camera.onConfirm(photo());
+  a.calls[0].reply(storedPhoto,201);await tick();a.calls[1].reply({revision:1,updated:10,submission_id:'v1'},201);await tick();
+  a.calls[2].reply({detail:'同步失败'},503);assert.equal(await pending,true);
+  assert.equal(a.run('S.savedEdit===S.edit'),true);assert.match(a.el('#toast').textContent,/已自动提交/);
+  assert.equal(a.calls.filter(c=>c.url.endsWith('/submissions')).length,1);
+});
+
+test('ordinary uploads still save a draft; camera confirmation in a legacy lesson stays manual',async()=>{
+  for(const legacy of [false,true]){
+    const a=photoSetup();if(legacy)a.run('S.lesson.flow_version=2');
+    const pending=legacy?a.camera.onConfirm(photo()):a.run("uploadFiles([new Blob(['photo'],{type:'image/jpeg'})])");
+    a.calls[0].reply(storedPhoto,201);await tick();
+    assert.match(a.calls[1].url,/\/work$/);a.calls[1].reply({revision:1,updated:10});assert.equal(await pending,true);
+    assert.equal(a.calls.length,2);
+  }
+});
+
+test('automatic photo submission validates image count and total size before uploading',async()=>{
+  const a=photoSetup();a.run("S.work.work.file_ids=Array.from({length:8},(_,i)=>'existing-'+i)");
+  assert.equal(await a.camera.onConfirm(photo()),false);assert.match(a.el('#toast').textContent,/最多提交8张/);
+  a.run("S.work.work.file_ids=['large'];S.work.files=[{id:'large',size:20*1024*1024}]");
+  assert.equal(await a.camera.onConfirm(photo()),false);assert.match(a.el('#toast').textContent,/合计超过20 MB/);
+  assert.equal(a.calls.length,0);
+});
 test('teacher summary escapes evidence and hides stale issues',()=>{
   const a=setup();
   const data={status:'ready',submitted:1,evaluated:1,group_count:8,updated:null,groups:[{group_id:2,status:'processing'}],

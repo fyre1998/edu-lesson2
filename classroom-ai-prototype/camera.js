@@ -5,6 +5,7 @@ function createCameraCapture({ onConfirm, onFile }) {
   const status = find('cameraStatus'), placeholder = find('cameraPlaceholder');
   const shutter = find('cameraShutter'), confirm = find('cameraConfirm'), retry = find('cameraRetry');
   let stream = null, pendingPhoto = null, revision = 0, origin = null;
+  let readyText = '检查照片是否清晰，可以重拍或确认上传。';
   const show = (element, visible) => element.classList.toggle('hidden', !visible);
   function stopStream() {
     if (stream) stream.getTracks().forEach(track => track.stop());
@@ -97,7 +98,7 @@ function createCameraCapture({ onConfirm, onFile }) {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         pendingPhoto = new File([blob], `实验照片-${stamp}.jpg`, { type: 'image/jpeg' });
         confirm.disabled = false;
-        status.textContent = '检查照片是否清晰，可以重拍或确认上传。';
+        status.textContent = readyText;
       }, 'image/jpeg', 0.92);
     } catch {
       status.textContent = '照片生成失败，请重拍。';
@@ -111,11 +112,12 @@ function createCameraCapture({ onConfirm, onFile }) {
     if (!pendingPhoto || confirm.disabled) return;
     const request = revision;
     confirm.disabled = true;
+    status.textContent = '正在上传照片，请稍候…';
     try {
       const accepted = await onConfirm(pendingPhoto);
       if (request !== revision) return;
       if (accepted !== false) close();
-      else confirm.disabled = false;
+      else { status.textContent = '照片尚未上传成功，请查看提示后重试。'; confirm.disabled = false; }
     } catch {
       if (request !== revision) return;
       status.textContent = '添加失败，请重试。';
@@ -129,5 +131,10 @@ function createCameraCapture({ onConfirm, onFile }) {
   dialog.addEventListener('close', () => { if (!dialog.open) reset(); });
   window.addEventListener('pagehide', close);
   document.addEventListener('visibilitychange', () => { if (document.hidden && dialog.open) close(); });
-  return { open() { if (dialog.open) return; origin = document.activeElement; dialog.showModal(); start(); }, close };
+  return { open(options = {}) {
+    if (dialog.open) return;
+    confirm.textContent = options.confirmText || '确认上传';
+    readyText = options.readyText || '检查照片是否清晰，可以重拍或确认上传。';
+    origin = document.activeElement; dialog.showModal(); start();
+  }, close };
 }

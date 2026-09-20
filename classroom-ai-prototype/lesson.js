@@ -68,6 +68,7 @@ async function loadLessons(preferred) {
 }
 async function loadStage(stage) {
   closePresentation();
+  camera.close();
   $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel(); S.modelNotice=''; S.selectedScientist=null;
@@ -117,6 +118,7 @@ function renderStudent() {
   $('#workFields').classList.toggle('location-fields',S.lesson.flow_version===2&&S.stage===1);
   show('#generalAttachments',!isModel());
   $('#fileInput').accept=isInquiry()?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
+  $('#attachmentHint').textContent=isInquiry()?'拍照后确认即可自动交给 AI；选择文件上传后请点击提交。单份最大 20 MB。':'纸质方案或解释图可拍照提交。单份最大 20 MB。';
   $('#saveStatus').textContent=S.work.work.updated?'已保存 · '+stamp(S.work.work.updated):'草稿自动保存';
   renderExtras();
 }
@@ -227,7 +229,12 @@ function saveWork(submit=false) {
       S.work.work.revision=result.revision; S.work.work.updated=result.updated; S.work.work.fields=fields; S.savedEdit=edit;
       if(S.edit===edit) sessionStorage.removeItem(draftKey()); else localDraft();
       $('#saveStatus').textContent=(submit?'提交已保存 · ':'已保存 · ')+stamp(result.updated);
-      if(submit) { S.submitAttempt=null; await refreshWork(false); toast(fields.phase==='model'?'模型图已提交，现在可在原图上放置科学家姓名。':fields.phase==='discussion'?'讨论答案已提交。':'本组成果已提交，后续修改会保留新版本。'); }
+      if(submit) {
+        S.submitAttempt=null;
+        try { await refreshWork(false); }
+        catch { toast('提交已保存，结果暂未同步，请稍后刷新查看，无需再次提交。'); return true; }
+        toast(fields.phase==='model'?'模型图已提交，现在可在原图上放置科学家姓名。':fields.phase==='discussion'?'讨论答案已提交。':'本组成果已提交，后续修改会保留新版本。');
+      }
       return true;
     } catch(e) { $('#saveStatus').textContent=e.message; localDraft(); toast(e.message); return false; }
     finally { if(S.user && S.lesson?.id===context.id && S.stage===context.stage) $('#submitButton').disabled=S.lesson.status!=='live'; }
@@ -391,10 +398,16 @@ async function sendChat(retry=false) {
   } catch(e) { if(seq===S.seq && S.pending){S.pending.error=e.message;$('#chatInput').value=p.message;} }
   finally { S.sending=false; if(seq===S.seq&&S.user) renderChat(); }
 }
-async function uploadFiles(files) {
-  if(!S.lesson||S.uploading||S.sending||S.lesson.status!=='live') return false;
-  const seq=S.seq,target=isModel()?(S.uploadTarget||pictureTarget()):null; S.uploading=true; let count=0, attached=0;
+async function uploadFiles(files,{submitToAI=false}={}) {
+  if(!S.lesson||busy()||S.lesson.status!=='live'||!files.length) return false;
+  const seq=S.seq,target=isModel()?(S.uploadTarget||pictureTarget()):null,autoSubmit=submitToAI&&isInquiry(); S.uploading=true; let count=0, attached=0;
   try {
+    if(autoSubmit){
+      if(files.some(f=>!/^image\/(png|jpeg|webp)$/.test(f.type)))throw new Error('请上传 PNG、JPG 或 WebP 图片。');
+      const selected=S.work.files.filter(f=>S.work.work.file_ids.includes(f.id));
+      if(S.work.work.file_ids.length+files.length>8)throw new Error('一次最多提交8张图片，请先取消不需要的成果附件，再确认照片。');
+      if([...selected,...files].reduce((size,f)=>size+f.size,0)>20*1024*1024)throw new Error('本次照片与已选附件合计超过20 MB，请先减少成果附件，再确认照片。');
+    }
     if(target){
       if(files.some(f=>!/^image\/(png|jpeg|webp)$/.test(f.type)))throw new Error('请上传 PNG、JPG 或 WebP 图片。');
       if(fileIds(collectFields(),target+'_files').length+files.length>4)throw new Error('模型图和讨论答案各最多上传4张图片。');
@@ -409,9 +422,19 @@ async function uploadFiles(files) {
       if(target)registerPicture(f.id,target);
       renderExtras(); markDirty();
     }
+    if(autoSubmit){
+      const submitted=await saveWork(true);
+      if(seq===S.seq){
+        if(submitted)toast(S.stage===1?'照片已自动提交给 AI，匹配完成后会在对话中显示结果图。':'照片已自动提交给 AI，评价完成后会显示本次方案反馈。');
+        else toast('照片已上传并保留，自动提交尚未成功。请点击提交按钮重试，无需重拍或再次上传。');
+      }
+      // The photo is already stored. Close the camera even if submission needs
+      // retrying, so confirming the same photo cannot create another upload.
+      return true;
+    }
     const saved=await saveWork(false); toast(`已上传 ${count} 份资料，${attached} 份已选为成果附件。${attached<count?'一次成果最多关联 12 份，可在附件列表调整。':''}${saved?'':'成果关联尚未同步，请重试保存。'}`); return saved;
   } catch(e) { toast(`已上传 ${count} 份；${e.message}`); return false; }
-  finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(isModel()&&seq===S.seq)renderExtras(); }
+  finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(S.user&&seq===S.seq){if(isModel())renderExtras();renderChat();} }
 }
 async function present(left) {
   stopPresentation();
@@ -510,7 +533,7 @@ async function adjust() {
 let scenarioList=[];
 async function scenarioOptions(selected=0){scenarioList=await api(base()+'/scenarios/'+encodeURIComponent($('#adjustTreatment').value));$('#adjustVariant').innerHTML=scenarioList.map(s=>`<option value="${s.variant}">${'ABC'[s.variant]} · ${esc(s.label)}</option>`).join('');$('#adjustVariant').value=selected;renderScenarioPreview();}
 function renderScenarioPreview(){const s=scenarioList.find(s=>s.variant===Number($('#adjustVariant').value));$('#adjustPreview').innerHTML=s?`<img class="record-image" src="${esc(s.image)}" alt="${esc(s.label)}"><span class="fine">${esc(s.boundary)}</span>`:'';}
-const camera=createCameraCapture({onConfirm:f=>uploadFiles([f]),onFile:()=>$('#fileInput').click()});
+const camera=createCameraCapture({onConfirm:f=>uploadFiles([f],{submitToAI:isInquiry()}),onFile:()=>$('#fileInput').click()});
 $('#loginGroup').addEventListener('change',names);
 $$('[data-role]').forEach(b=>b.addEventListener('click',()=>{S.role=b.dataset.role;$$('[data-role]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});show('#groupField',S.role==='student');show('#teacherPasswordField',S.role==='teacher');$('#teacherPassword').required=S.role==='teacher';names();}));
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginError').textContent='';$('#loginSubmit').disabled=true;try{const user=await api('/login',{method:'POST',body:{role:S.role,name:S.role==='teacher'?$('#loginName').value:'',groupId:S.role==='student'?Number($('#loginGroup').value):null,code:$('#classCode').value,teacherPassword:$('#teacherPassword').value}});await activate(user);}catch(err){$('#loginError').textContent=err.message;}finally{$('#loginSubmit').disabled=false;}});

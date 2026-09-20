@@ -44,7 +44,7 @@ function choosePicture(target,capture=false){
   if(busy()||S.lesson.status!=='live')return;
   S.uploadTarget=target;
   $('#fileInput').accept=(target||isInquiry())?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
-  if(capture)camera.open();else $('#fileInput').click();
+  if(capture)camera.open(isInquiry()?{confirmText:'确认并交给 AI',readyText:'检查照片是否清晰，可以重拍。确认后将与当前研究记录一起自动提交给 AI。'}:{});else $('#fileInput').click();
 }
 function registerPicture(id,target){
   const field=$('#field-'+target+'_files'),ids=fileIds(collectFields(),target+'_files');

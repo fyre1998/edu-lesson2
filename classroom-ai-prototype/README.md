@@ -58,7 +58,7 @@ AI 输入框按 Enter 发送，Shift+Enter 换行；中文输入法选字时不�
 
 ## 语音输入
 
-聊天点击“开始说话”，说完点“停止并发送”。转写为文字后与已有草稿合并并自动发送，AI 以文字回复。成果文本框点“语音填写”，停止后只填入对应草稿，仍需学生提交成果。
+聊天点击“开始说话”，说完点“停止并发送”。转写为文字后与已有草稿合并并自动发送，AI 以文字回复。成果文本框点“语音填写”后，原按钮变为“停止并填入”，取消按钮和录音、转写状态都显示在该文本框下方；停止后只填入对应草稿，仍需学生提交成果。
 
 录音最长 90 秒，单份最多 10 MB；可随时取消。退出、切换课次／环节、页面进入后台会停止录音并丢弃迟到转写。权限拒绝、无设备、静音、格式不兼容和接口失败均有提示。发送失败保留识别文字和重试入口。音频只临时传给转写服务，不作为课堂附件或写入长期存储；文字进入正常课堂记录。
 
@@ -99,7 +99,7 @@ STT_MODEL=openai/gpt-4o-mini-transcribe
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests -q
-node --test classroom-ai-prototype/camera.test.cjs classroom-ai-prototype/chat.test.cjs classroom-ai-prototype/lesson.test.cjs classroom-ai-prototype/voice.test.cjs
+node --test classroom-ai-prototype/camera.test.cjs classroom-ai-prototype/chat.test.cjs classroom-ai-prototype/lesson.test.cjs classroom-ai-prototype/voice.test.cjs classroom-ai-prototype/voice-ui.test.cjs
 node --check classroom-ai-prototype/lesson.js
 ```
 

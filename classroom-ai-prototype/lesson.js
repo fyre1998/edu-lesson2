@@ -7,6 +7,7 @@ const S = {user:null, roster:null, role:'student', lessons:[], lesson:null, stag
   work:null, material:null, edit:0, savedEdit:0, loading:false, syncing:false, uploading:false, sending:false,
   pending:null, images:new Map(), seq:0, lastTeacherStage:1, saveChain:Promise.resolve(), draftTimer:null, submitAttempt:null};
 let toastTimer;
+let voiceLabel='';
 const presentation = {request:0, timer:null, auto:false, loading:false};
 function toast(text) { $('#toast').textContent=text; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000); }
 function show(id, visible) { $(id).classList.toggle('hidden',!visible); }
@@ -14,6 +15,32 @@ function isTeacher() { return S.user?.role==='teacher'; }
 function base() { return '/lessons/'+encodeURIComponent(S.lesson.id); }
 function draftKey() { return `auxin:${S.user.groupId}:${S.lesson.id}:${S.stage}`; }
 function busy() { return S.uploading || S.sending || S.loading || S.submitting || S.extracting; }
+function renderVoiceControls() {
+  const voice=globalThis.lessonVoice, state=voice?.state||'idle', target=voice?.target;
+  const active=state!=='idle', chatActive=active&&target==='chat', unavailable=S.lesson?.status!=='live';
+  show('#voiceStart',!chatActive); show('#voiceStop',chatActive&&state==='recording'); show('#voiceCancel',chatActive);
+  $('#voiceStart').disabled=active||busy()||unavailable;
+  $('#voiceStatus').textContent=target==='chat'?voiceLabel:'';
+  $('#chatInput').readOnly=active;
+  $('#sendButton').disabled=active||S.sending||unavailable;
+  $$('[data-voice-field]').forEach(button=>{
+    const key=button.dataset.voiceField, current=active&&target===key, recording=current&&state==='recording';
+    button.textContent=recording?'停止并填入':current?{requesting:'正在准备…',stopping:'正在结束…',transcribing:'正在转写…',sending:'正在填入…'}[state]:'语音填写';
+    button.classList.toggle('is-recording',recording);
+    button.disabled=recording?false:active||busy()||unavailable||$('#field-'+key)?.disabled;
+    show('#voice-cancel-'+key,current);
+    $('#voice-status-'+key).textContent=target===key?voiceLabel:'';
+  });
+}
+function handleFieldVoiceClick(event) {
+  const cancel=event.target.closest('[data-voice-cancel]');
+  if(cancel){if(lessonVoice.target===cancel.dataset.voiceCancel)lessonVoice.cancel();return;}
+  const button=event.target.closest('[data-voice-field]');
+  if(!button)return;
+  const key=button.dataset.voiceField;
+  if(lessonVoice.target===key&&lessonVoice.state==='recording'){lessonVoice.stop();return;}
+  if(!busy()&&!$('#field-'+key)?.disabled&&S.lesson?.status==='live')lessonVoice.start(key);
+}
 async function api(path, options={}) {
   const headers={'X-Workbench':'1'};
   if(options.body && !(options.body instanceof FormData)) { headers['Content-Type']='application/json'; options.body=JSON.stringify(options.body); }
@@ -156,7 +183,7 @@ function renderExtras() {
   const w=S.work, archived=S.lesson.status!=='live';
   $('#assignmentArea').innerHTML=isInquiry()?'':w.assignment?assignmentHTML(w.assignment):S.stage===(S.lesson.assignment_stage||2)?`<p class="notice">${assignmentNotice()}</p>`:'';
   $$('[data-field]').forEach(el=>el.disabled=archived || S.submitting || (assignmentLocksDesign(w.assignment) && ['treatment','design','prediction'].includes(el.dataset.field)));
-  $$('[data-voice-field]').forEach(b=>b.disabled=archived||S.submitting||$('#field-'+b.dataset.voiceField)?.disabled);
+  renderVoiceControls();
   if(w.assignment) $('#assignmentArea').insertAdjacentHTML('beforeend',assignmentLocksDesign(w.assignment)?(S.lesson.flow_version===2?'<p class="fine">原始实验设计已保留，可在对话中讨论结果与修改意见。</p>':'<p class="fine">原始方案与预测已保留。请在结果分析中记录新的解释或修改意见。</p>'):'<p class="fine">已收到本组预期结果，可以继续完成实验设计，并在对话中讨论结果。</p>');
   for(const id of ['#submitButton','#saveButton','#uploadButton','#cameraButton']) $(id).disabled=archived || S.submitting;
   $('#workFiles').innerHTML=w.files.length?w.files.map(f=>fileHTML(f,true)).join(''):'<p class="fine">还没有附件。可上传纸质方案或手绘图。</p>';
@@ -377,8 +404,7 @@ function renderChat() {
   if(box.innerHTML!==(html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>')) {box.innerHTML=html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>';const scroller=$('#conversationScroll');if(S.content.opener||(g?.chats?.length||0)>0||versions.length||S.pending)scroller.scrollTop=scroller.scrollHeight;}
   $('#quickPrompts').innerHTML=(S.content.content.prompts||[]).map(p=>`<button type="button" data-prompt="${esc(p)}">${esc(p)}</button>`).join('');
   $('#chatAttachments').innerHTML=[...S.images.values()].map(f=>`<div class="chat-attachment"><span>${esc(f.name)}</span><button type="button" data-remove-ai="${esc(f.id)}" aria-label="移除${esc(f.name)}">×</button></div>`).join('');
-  $('#sendButton').disabled=S.sending||S.lesson.status!=='live'||(globalThis.lessonVoice&&lessonVoice.state!=='idle');
-  $('#voiceStart').disabled=S.sending||S.lesson.status!=='live';
+  renderVoiceControls();
   for(const id of ['#chatSubmit','#chatUpload','#chatCamera'])$(id).disabled=busy()||S.lesson.status!=='live';
   $('#chatStatus').textContent=S.sending?'正在分析…':S.user.ai_ready?'仅发送文字与选中图片':'AI 暂未配置，仍可提交成果';
 }
@@ -593,11 +619,11 @@ const voiceContext=()=>S.user&&S.lesson?`${S.user.groupId}:${S.lesson.id}:${S.st
 globalThis.lessonVoice=createVoiceInput({getContext:voiceContext,
   transcribe:async(blob,context,signal)=>{const body=new FormData();body.append('file',blob,'speech');body.append('lesson_id',S.lesson.id);body.append('stage',S.stage);body.append('request_id',crypto.randomUUID());return (await api('/transcriptions',{method:'POST',body,signal})).text;},
   onText:async(text,target,context)=>{if(context!==voiceContext())return;if(target==='chat'){$('#chatInput').value=[$('#chatInput').value.trim(),text].filter(Boolean).join('\n');await sendChat();}else{const f=$('#field-'+target);if(f&&!f.disabled){f.value=[f.value.trim(),text].filter(Boolean).join('\n');f.dispatchEvent(new Event('input',{bubbles:true}));}}},
-  onState:(state,label)=>{$('#voiceStatus').textContent=label;show('#voiceStart',state==='idle');show('#voiceStop',state==='recording');show('#voiceCancel',state!=='idle');$('#voiceStop').textContent=globalThis.lessonVoice?.target==='chat'?'停止并发送':'停止并填入';$('#chatInput').readOnly=state!=='idle';$('#sendButton').disabled=state!=='idle'||S.sending||S.lesson?.status!=='live';$$('[data-voice-field]').forEach(b=>b.disabled=state!=='idle'||S.lesson?.status!=='live'||$('#field-'+b.dataset.voiceField)?.disabled);},
-  onError:message=>{toast(message);$('#voiceStatus').textContent=message;}
+  onState:(state,label)=>{voiceLabel=label;renderVoiceControls();},
+  onError:message=>{toast(message);voiceLabel=message;renderVoiceControls();}
 });
 $('#voiceStart').addEventListener('click',()=>{if(!busy()&&S.lesson?.status==='live')lessonVoice.start('chat');});
 $('#voiceStop').addEventListener('click',()=>lessonVoice.stop());$('#voiceCancel').addEventListener('click',()=>lessonVoice.cancel());
-$('#workFields').addEventListener('click',e=>{const b=e.target.closest('[data-voice-field]');if(b&&!busy()&&!$('#field-'+b.dataset.voiceField)?.disabled&&S.lesson?.status==='live')lessonVoice.start(b.dataset.voiceField);});
+$('#workFields').addEventListener('click',handleFieldVoiceClick);
 $('#chatUpload').addEventListener('click',()=>choosePicture(pictureTarget()));$('#chatCamera').addEventListener('click',()=>choosePicture(pictureTarget(),true));$('#chatSubmit').addEventListener('click',()=>{if(!busy())submitFinalWork();});
 boot();setInterval(poll,5000);

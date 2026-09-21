@@ -46,8 +46,10 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .ai-panel textarea{height:72px;min-height:60px;max-height:150px}
 .voice-controls{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:9px}
 .voice-controls button,.field-mic{font-size:.78rem;min-height:33px;padding:5px 10px}
-#voiceStart{background:#eaf4ee;color:#24674d;border-color:#d0e6d8}#voiceStop{background:#a63e37;color:white;border-color:#a63e37}
-#voiceStatus{font-size:.74rem;color:var(--muted);flex:1;min-width:100px}.field-mic{margin-top:6px;color:var(--blue)}
+#voiceStart{background:#eaf4ee;color:#24674d;border-color:#d0e6d8}#voiceStop,.field-mic.is-recording{background:#a63e37;color:white;border-color:#a63e37}
+.field-mic.is-recording:hover:not(:disabled){background:#8e302b;border-color:#8e302b}
+#voiceStatus,.field-voice-status{font-size:.74rem;color:var(--muted);flex:1;min-width:100px}.field-mic{color:var(--blue)}
+.field-voice-controls{margin-top:6px}.field-voice-status{overflow-wrap:anywhere}.field-voice-status:empty{display:none}
 .activity-receipt{font-size:.75rem;color:var(--muted);border-left:2px solid #a8c7b6;padding:5px 10px;margin:8px 0}
 .opener{border-left:3px solid #799dcc;padding-left:14px}.quick-prompts{margin:8px 0}.quick-prompts button{font-size:.73rem}
 .student-score{margin-bottom:12px}.student-score:empty{display:none}.score-heading{display:flex;gap:12px;justify-content:space-between;align-items:center;padding:10px 0}.score-heading strong{font-size:1.15rem}

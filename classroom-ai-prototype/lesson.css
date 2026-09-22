@@ -136,10 +136,23 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .camera-dialog .panel-heading{margin:0;flex:none}
 .camera-dialog .camera-stage{position:relative;flex:1;min-height:0;width:100%;overflow:hidden;background:#102333;color:#e3edf5}
 .camera-dialog .camera-stage video,.camera-dialog .camera-stage canvas{position:absolute;inset:0;display:block;width:100%;height:100%;max-height:none;object-fit:contain}
+.camera-dialog .camera-stage canvas{inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);outline:1px solid #d9e7f5;outline-offset:-1px;touch-action:none;user-select:none}
+.camera-dialog .camera-stage canvas:focus-visible{outline:3px solid #80b3ff;outline-offset:-3px}
+.camera-dialog .camera-stage canvas.is-zoomed{cursor:grab}
+.camera-dialog .camera-stage canvas.is-dragging{cursor:grabbing}
+.camera-editor{flex:none;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.camera-zoom-controls{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.camera-zoom-controls label{margin:0;font-size:.85rem;white-space:nowrap}
+.camera-zoom-controls input[type=range]{width:clamp(100px,25vw,300px);min-width:70px;padding:0;accent-color:var(--blue);cursor:pointer}
+.camera-zoom-controls output{min-width:48px;text-align:center;font-size:.85rem;font-variant-numeric:tabular-nums}
+.camera-zoom-controls button{min-height:36px;padding:5px 12px}
+.camera-editor p{margin:7px 0 0;text-align:center;color:var(--muted);font-size:.78rem}
 .camera-dialog #cameraStatus{flex:none;margin:0;font-size:.9rem}
 .camera-dialog>.actions{flex:none}
 .camera-dialog>.actions button{min-height:46px;padding:9px 22px}
 @media(max-width:580px){.camera-dialog{width:calc(100vw - 12px);height:calc(100dvh - 12px);max-height:none;padding:12px;border-radius:12px}.camera-dialog>.actions{gap:6px}.camera-dialog>.actions button{flex:1;padding:8px 10px}.camera-dialog h2{font-size:1.1rem}}
+@media(max-width:580px){.camera-editor{padding:8px}.camera-zoom-controls{gap:6px}.camera-zoom-controls label{flex-basis:100%;text-align:center}.camera-zoom-controls input[type=range]{flex:1;width:70px}.camera-zoom-controls button{min-height:40px}.camera-editor p{font-size:.72rem}.camera-dialog #cameraStatus{font-size:.8rem}}
+@media(max-height:600px) and (min-width:581px){.camera-dialog{padding:12px}.camera-dialog[open]{gap:8px}.camera-dialog h2{font-size:1.1rem}.camera-dialog #cameraClose{min-height:34px;padding:4px 10px}.camera-dialog>.actions button{min-height:38px;padding:6px 16px}.camera-editor{padding:6px 10px}.camera-editor p{margin-top:4px;font-size:.72rem}.camera-dialog #cameraStatus{font-size:.8rem}}
 
 /* The score remains visible independently of work/chat scrolling. */
 .score-bubble{position:fixed;right:24px;bottom:22px;z-index:100;width:380px;max-width:calc(100vw - 28px);max-height:76vh;max-height:76dvh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #aac6ec;border-radius:20px;background:#fff;box-shadow:0 12px 44px #153d7136}

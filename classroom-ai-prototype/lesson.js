@@ -8,7 +8,7 @@ const S = {user:null, roster:null, role:'student', lessons:[], lesson:null, stag
   pending:null, images:new Map(), seq:0, lastTeacherStage:1, saveChain:Promise.resolve(), draftTimer:null, submitAttempt:null};
 let toastTimer;
 let voiceLabel='';
-const presentation = {request:0, timer:null, auto:false, loading:false};
+const presentation = {request:0, timer:null, auto:false, loading:false, mode:'work'};
 function toast(text) { $('#toast').textContent=text; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000); }
 function show(id, visible) { $(id).classList.toggle('hidden',!visible); }
 function isTeacher() { return S.user?.role==='teacher'; }
@@ -51,6 +51,7 @@ async function api(path, options={}) {
 }
 function reset() {
   closePresentation();
+  closeSummaryPresentation();
   $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel();
@@ -80,6 +81,7 @@ function lessonOptions() {
 }
 async function loadLessons(preferred) {
   closePresentation();
+  closeSummaryPresentation();
   resetScoreBubble();
   S.lessons=await api('/lessons');
   S.lesson=S.lessons.find(l=>l.id===preferred)||S.lessons.find(l=>l.status==='live')||S.lessons[0]||null;
@@ -95,6 +97,7 @@ async function loadLessons(preferred) {
 }
 async function loadStage(stage) {
   closePresentation();
+  closeSummaryPresentation();
   camera.close();
   $('#lessonMaterials').open=false;
   resetScoreBubble();
@@ -318,34 +321,58 @@ function workPreview(fields,attachments=[]){
 }
 
 let summaryPendingKey = '', summaryRequest = 0;
-function teacherSummaryHTML(data) {
+function teacherSummaryHTML(data, projected=false) {
   const labels = {unsubmitted:'尚未提交',pending:'等待评价',processing:'正在评价',failed:'评价失败',needs_clarification:'图片待补充',previous_task:'旧任务提交',ready:'已评价',corrected:'教师已复核'};
   const counts = `<p class="fine">已提交 ${data.submitted} / ${data.group_count} 组 · 本次可分析 ${data.evaluated} 组${data.updated?' · 更新于 '+esc(stamp(data.updated)):''}</p>`;
   const waiting = data.groups.filter(g=>!['ready','corrected'].includes(g.status));
-  const pending = waiting.length?`<p class="fine">${waiting.map(g=>`第 ${g.group_id} 组：${esc(labels[g.status]||g.status)}`).join('；')}。这些小组暂不归入设计问题。</p>`:'';
-  const statuses = {waiting:'等待各组提交并完成评价。',pending:'已有新提交，正在更新汇总。',processing:'AI 正在归纳各组最新方案。',failed:'AI 汇总暂未完成，各组设计与评价已保留。'};
+  const pending = waiting.length?`<details class="summary-pending"><summary>${waiting.length} 组暂未纳入汇总</summary><p class="fine">${waiting.map(g=>`第 ${g.group_id} 组：${esc(labels[g.status]||g.status)}`).join('；')}。这些小组暂不归入设计问题。</p></details>`:'';
+  const statuses = {waiting:'等待各组提交并完成评价。',pending:'已有新提交，正在更新汇总。',processing:'AI 正在归纳各组实验设计的具体不足。',failed:'AI 汇总暂未完成，各组设计与评价已保留。'};
   if(data.status!=='ready'||!data.result) return `${counts}<p role="status">${esc(statuses[data.status]||'正在更新汇总。')}</p>${pending}${data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':''}`;
   const result=data.result;
-  return `${counts}<p>${esc(result.overview)}</p>${result.issues.length?result.issues.map(issue=>`<article class="summary-issue"><h3>${esc(issue.title)} <span class="fine">${issue.group_ids.length} 组</span></h3><div class="summary-groups">${issue.group_ids.map(g=>`<button type="button" data-summary-group="${g}">第 ${g} 组</button>`).join('')}</div><p>${esc(issue.detail)}</p><p><strong>课堂追问：</strong>${esc(issue.suggestion)}</p><details><summary>查看归纳依据</summary>${issue.evidence.map(e=>{const source=result.sources.find(s=>s.group_id===e.group_id);return `<p>第 ${e.group_id} 组 · 提交版本 ${source?.revision??'—'}：${esc(e.quote)}</p>`;}).join('')}</details></article>`).join(''):'<p>当前可分析方案中，尚无有充分依据的设计问题需要归类。</p>'}${result.discussion.length?`<div class="summary-discussion"><h3>建议全班交流</h3><ol>${result.discussion.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></div>`:''}${pending}`;
+  return `${projected?'':counts}<p class="summary-overview">${esc(result.overview)}</p><div class="summary-issues">${result.issues.length?result.issues.map((issue,index)=>`<article class="summary-issue"><h3><span class="summary-number">${index+1}</span>${esc(issue.title)}</h3><p class="summary-detail">${esc(issue.detail)}</p><div class="summary-groups"><span class="fine">涉及小组：</span>${issue.group_ids.map(g=>`<button type="button" data-summary-group="${g}">第 ${g} 组</button>`).join('')}</div><details><summary>查看原文依据与点评建议</summary><p><strong>教师点评建议：</strong>${esc(issue.suggestion)}</p>${issue.evidence.map(e=>{const source=result.sources.find(s=>s.group_id===e.group_id);return `<p>第 ${e.group_id} 组 · 提交版本 ${source?.revision??'—'}：${esc(e.quote)}</p>`;}).join('')}</details></article>`).join(''):'<p>当前可分析方案中，暂未发现有充分依据的主要设计不足。</p>'}</div>${result.discussion.length?`<details class="summary-discussion"><summary>教师点评关注点</summary><ol>${result.discussion.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></details>`:''}${projected?counts:''}${pending}`;
+}
+function updateSummaryPanels(data, message='') {
+  for(const [id,projected] of [['#teacherSummaryBody',false],['#summaryPresentationBody',true]]) {
+    const panel=$(id),html=data?teacherSummaryHTML(data,projected):message;
+    if(panel.dataset.snapshot!==html){panel.innerHTML=html;panel.dataset.snapshot=html;}
+  }
 }
 async function refreshTeacherSummary() {
   const enabled=isTeacher()&&isInquiry()&&S.stage===2;
   show('#teacherSummary',enabled);
-  if(!enabled) { summaryRequest++;summaryPendingKey='';return; }
+  if(!enabled) { summaryRequest++;summaryPendingKey='';closeSummaryPresentation();return; }
   const key=`${S.lesson.id}:${S.seq}`;
   if(summaryPendingKey===key)return;
   const panel=$('#teacherSummaryBody');
-  if(panel.dataset.context!==key){panel.dataset.context=key;panel.dataset.snapshot='';panel.innerHTML='<p class="fine">正在读取各组设计汇总……</p>';}
+  if(panel.dataset.context!==key){panel.dataset.context=key;updateSummaryPanels(null,'<p class="fine" role="status">正在读取各组设计汇总……</p>');}
   const request=++summaryRequest,seq=S.seq;
   summaryPendingKey=key;
   try {
     const data=await api(base()+'/design-summary');
     if(request!==summaryRequest||seq!==S.seq||!isTeacher()||S.stage!==2)return;
-    const html=teacherSummaryHTML(data);
-    if(panel.dataset.snapshot!==html){panel.innerHTML=html;panel.dataset.snapshot=html;}
+    updateSummaryPanels(data);
   } catch(e) {
-    if(request===summaryRequest&&seq===S.seq) {panel.innerHTML=`<p class="fine">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`;panel.dataset.snapshot='';}
+    if(request===summaryRequest&&seq===S.seq)updateSummaryPanels(null,`<p class="fine" role="status">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`);
   } finally {if(request===summaryRequest)summaryPendingKey='';}
+}
+function presentSummary() {
+  if(!isTeacher()||!isInquiry()||S.stage!==2)return;
+  const dialog=$('#summaryPresentationDialog');
+  if(!dialog.open)dialog.showModal();
+  void toggleFullscreen($('#summaryPresentationSurface'));
+  void refreshTeacherSummary();
+}
+function closeSummaryPresentation() {
+  const dialog=$('#summaryPresentationDialog');
+  if(dialog.open)dialog.close();
+  if(document.fullscreenElement===$('#summaryPresentationSurface'))document.exitFullscreen()?.catch(()=>{});
+}
+async function handleSummaryClick(e) {
+  const group=e.target.closest('[data-summary-group]'),retry=e.target.closest('[data-summary-retry]');
+  try {
+    if(group){closeSummaryPresentation();S.group=Number(group.dataset.summaryGroup);await refreshWork();renderTeacher();$('#groupDetail').scrollIntoView({behavior:'smooth',block:'start'});}
+    if(retry){retry.disabled=true;await api(base()+'/design-summary/retry',{method:'POST'});await refreshTeacherSummary();}
+  } catch(err){toast(err.message);if(retry)retry.disabled=false;}
 }
 
 function renderTeacher() {
@@ -464,6 +491,7 @@ async function uploadFiles(files,{submitToAI=false}={}) {
 }
 async function present(left) {
   stopPresentation();
+  presentation.mode='work';
   $('#compareLeft').innerHTML=$('#compareRight').innerHTML=S.roster.groups.filter(g=>g.id<=S.lesson.group_count).map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');
   $('#compareLeft').value=left||S.group; $('#compareRight').value=(Number(left||S.group)%S.lesson.group_count)+1;
   $('#presentationTitle').textContent=`环节 ${S.stage} · ${S.content.content.question}`;
@@ -472,13 +500,17 @@ async function present(left) {
 async function compare() {
   if(!$('#presentationDialog').open)return;
   clearTimeout(presentation.timer); presentation.timer=null;
-  const request=++presentation.request, seq=S.seq, ids=[$('#compareLeft').value,$('#compareRight').value];
+  const request=++presentation.request, seq=S.seq, ids=[$('#compareLeft').value,$('#compareRight').value], mode=presentation.mode;
   presentation.loading=true; renderPresentationControls();
-  $('#comparison').innerHTML='<p class="loading" role="status">正在读取小组成果与评分…</p>';
+  $('#comparison').innerHTML=`<p class="loading" role="status">正在读取${mode==='chat'?'小组与 AI 对话':'小组成果与评分'}…</p>`;
   try {
-    const data=await Promise.all(ids.map(g=>api(base()+`/groups/${g}/stages/${S.stage}`)));
+    const [data,groups]=await Promise.all([
+      Promise.all(ids.map(g=>api(base()+`/groups/${g}/stages/${S.stage}`))),
+      mode==='chat'?api(base()+`/groups?stage=${S.stage}`):Promise.resolve([])
+    ]);
     if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
     $('#comparison').innerHTML=data.map((w,i)=>{
+      if(mode==='chat')return presentationChatHTML(w,groups.find(g=>g.id===Number(ids[i])),ids[i]);
       const v=w.versions.at(-1), record=v||w.work;
       // Model and discussion images are already rendered with their annotations.
       const pictureIds=isModel()?[...fileIds(record.fields,'model_files'),...fileIds(record.fields,'discussion_files')]:[];
@@ -487,13 +519,23 @@ async function compare() {
   } catch(e) {
     if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
     presentation.auto=false;
-    $('#comparison').innerHTML='<p class="notice" role="alert">成果与评分读取失败，自动切换已暂停。请点击“更新展示”重试。</p>';
+    $('#comparison').innerHTML=`<p class="notice" role="alert">${mode==='chat'?'小组对话':'成果与评分'}读取失败，自动切换已暂停。请点击“更新展示”重试。</p>`;
     throw e;
   } finally {
     if(request===presentation.request) {
       presentation.loading=false; renderPresentationControls(); schedulePresentation();
     }
   }
+}
+function presentationChatHTML(work, group, id) {
+  const chats=group?.chats||[],versions=isInquiry()&&S.stage===1?work.versions:[];
+  const conversation=chatsHTML(chats,versions,work.files);
+  return `<section aria-label="第 ${id} 组与 AI 对话"><header class="comparison-heading"><h3>第 ${id} 组</h3><p class="fine">环节 ${S.stage} · ${chats.length} 轮对话${versions.length?' · '+versions.length+' 次实验思路与结果':''}</p></header><div class="comparison-work comparison-chat" tabindex="0" aria-label="第 ${id} 组与 AI 对话，可滚动查看">${S.content.opener?`<details class="conversation-opener"><summary>本环节引导</summary><p>${esc(S.content.opener)}</p></details>`:''}${conversation||'<p class="muted">本组在当前环节还没有与 AI 的对话。</p>'}</div></section>`;
+}
+async function togglePresentationMode() {
+  if(!$('#presentationDialog').open)return;
+  presentation.mode=presentation.mode==='chat'?'work':'chat';
+  await compare();
 }
 function presentationScoreHTML(work) {
   if(isInquiry()&&S.stage===1)return '<div class="comparison-score"><p class="fine">本部分不计分 · 比较实验思路与对应结果</p></div>';
@@ -506,6 +548,11 @@ function presentationScoreHTML(work) {
   return `<div class="comparison-score"><div class="comparison-score-heading"><strong>本环节 ${completed?score.total??'—':'—'} <small>/ ${score.maximum}</small></strong><span class="state">${esc(scoreStatus[score.status]||score.status)}</span></div>${completed?`<div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} <strong>${i.points??'—'} / ${i.maximum}</strong></span>`).join('')}</div><div class="comparison-feedback"><h4>改进建议</h4>${source?`<p class="fine">${source}</p>`:''}${suggestions.length?`<ol>${suggestions.map(i=>`<li>${esc(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'本次提交已达到本环节要求，暂无需要改进的项目。':'本次评分暂无改进建议，可查看教师评分说明。'}</p>`}<details><summary>评分说明</summary>${score.items.map(i=>`<p><strong>${esc(i.label)}：</strong>${esc(i.reason||'暂无详细说明')}</p>`).join('')}${score.correction?.reason?`<p><strong>教师复核：</strong>${esc(score.correction.reason)}</p>`:''}</details></div>`:`<p class="fine">${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':score.status==='unsubmitted'?'尚未提交成果，暂无评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}</div>`;
 }
 function renderPresentationControls() {
+  const chat=presentation.mode==='chat';
+  $('#presentationMode').textContent=chat?'展示成果与评分':'展示小组与 AI 对话';
+  $('#presentationMode').setAttribute('aria-pressed',String(chat));
+  $('#presentationMode').classList.toggle('primary',chat);
+  if(S.content)$('#presentationTitle').textContent=chat?`环节 ${S.stage} · 小组与 AI 对话`:`环节 ${S.stage} · ${S.content.content.question}`;
   $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（8 秒）';
   $('#compareAuto').setAttribute('aria-pressed',String(presentation.auto));
   $('#compareAuto').classList.toggle('primary',presentation.auto);
@@ -537,7 +584,17 @@ function closePresentation() {
   stopPresentation();
   const dialog=$('#presentationDialog');
   if(dialog.open)dialog.close();
-  if(document.fullscreenElement===dialog)document.exitFullscreen()?.catch(()=>{});
+  if(document.fullscreenElement===$('#presentationSurface'))document.exitFullscreen()?.catch(()=>{});
+}
+async function toggleFullscreen(dialog) {
+  try {
+    if(document.fullscreenElement===dialog)await document.exitFullscreen();
+    else await dialog.requestFullscreen();
+  } catch {toast('浏览器未进入全屏，可使用 F11。');}
+}
+function updateFullscreenButtons() {
+  $('#fullscreenButton').textContent=document.fullscreenElement===$('#presentationSurface')?'退出全屏':'全屏';
+  $('#summaryFullscreen').textContent=document.fullscreenElement===$('#summaryPresentationSurface')?'退出全屏':'全屏';
 }
 function dismissLessonMaterials(event) {
   const materials=$('#lessonMaterials');
@@ -586,7 +643,13 @@ $('#chatAttachments').addEventListener('click',e=>{const b=e.target.closest('[da
 $('#refreshButton').addEventListener('click',async()=>{if(!await flush())return;try{if(S.lesson)await loadStage(S.stage);else await loadLessons();}catch{}});
 $('#emptyState').addEventListener('click',e=>{if(e.target.closest('#createLessonButton'))createLesson().catch(e=>toast(e.message));});
 $('#teacherControls').addEventListener('click',async e=>{const id=e.target.closest('button')?.id;if(!id)return;try{if(id==='openStage')await control({stage:Number($('#teacherStage').value)});if(id==='releaseResults')await control({release_results:true});if(id==='revealResearch')await control({reveal_research:true});if(id==='archiveLesson'&&confirm('归档后本课只能查看，所有成果保留。确定归档？'))await control({status:'archived'});if(id==='newLessonButton')await createLesson();if(id==='presentButton')await present();}catch(err){toast(err.message);}});
-$('#teacherSummary').addEventListener('click',async e=>{try{const group=e.target.closest('[data-summary-group]');if(group){S.group=Number(group.dataset.summaryGroup);await refreshWork();renderTeacher();$('#groupDetail').scrollIntoView({behavior:'smooth',block:'start'});}const retry=e.target.closest('[data-summary-retry]');if(retry){retry.disabled=true;await api(base()+'/design-summary/retry',{method:'POST'});await refreshTeacherSummary();}}catch(err){toast(err.message);const retry=e.target.closest('[data-summary-retry]');if(retry)retry.disabled=false;}});
+$('#teacherSummary').addEventListener('click',handleSummaryClick);
+$('#summaryPresentationBody').addEventListener('click',handleSummaryClick);
+$('#presentSummary').addEventListener('click',presentSummary);
+$('#closeSummaryPresentation').addEventListener('click',closeSummaryPresentation);
+$('#summaryPresentationDialog').addEventListener('close',()=>{if(!$('#summaryPresentationDialog').open)closeSummaryPresentation();});
+$('#summaryPresentationDialog').addEventListener('cancel',e=>{e.preventDefault();closeSummaryPresentation();});
+$('#summaryFullscreen').addEventListener('click',()=>toggleFullscreen($('#summaryPresentationSurface')));
 $('#groupGrid').addEventListener('click',async e=>{const b=e.target.closest('[data-group]');if(!b)return;S.group=Number(b.dataset.group);await refreshWork().catch(e=>toast(e.message));renderTeacher();});
 $('#groupDetail').addEventListener('click',e=>{const b=e.target.closest('[data-present-group]');if(b)present(Number(b.dataset.presentGroup)).catch(e=>toast(e.message));if(e.target.closest('#adjustButton'))adjust().catch(e=>toast(e.message));});
 $('#adjustTreatment').addEventListener('change',()=>scenarioOptions().catch(e=>toast(e.message)));$('#adjustVariant').addEventListener('change',renderScenarioPreview);
@@ -598,7 +661,10 @@ $('#presentationDialog').addEventListener('cancel',e=>{e.preventDefault();closeP
 $('#compareRefresh').addEventListener('click',()=>compare().catch(e=>toast(e.message)));
 $('#compareNext').addEventListener('click',()=>nextComparison().catch(e=>toast(e.message)));
 $('#compareAuto').addEventListener('click',togglePresentationAuto);
-['#compareLeft','#compareRight'].forEach(id=>$(id).addEventListener('change',()=>compare().catch(e=>toast(e.message))));$('#fullscreenButton').addEventListener('click',()=>{const p=document.fullscreenElement?document.exitFullscreen():$('#presentationDialog').requestFullscreen();p?.catch(()=>toast('浏览器未进入全屏，可使用 F11。'));});
+$('#presentationMode').addEventListener('click',()=>togglePresentationMode().catch(e=>toast(e.message)));
+['#compareLeft','#compareRight'].forEach(id=>$(id).addEventListener('change',()=>compare().catch(e=>toast(e.message))));
+$('#fullscreenButton').addEventListener('click',()=>toggleFullscreen($('#presentationSurface')));
+document.addEventListener('fullscreenchange',updateFullscreenButtons);
 $('#legacyButton').addEventListener('click',()=>legacy().catch(e=>toast(e.message)));$('#closeHistory').addEventListener('click',()=>$('#historyDialog').close());
 window.addEventListener('beforeunload',e=>{globalThis.lessonVoice?.cancel();if(S.edit!==S.savedEdit||S.uploading||S.sending){localDraft();e.preventDefault();e.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)globalThis.lessonVoice?.cancel();if(document.hidden&&S.user&&!isTeacher()&&S.edit!==S.savedEdit)saveWork(false);});

@@ -11,6 +11,22 @@ from test_lesson_v3 import start, scoring
 from backend.lesson_summary import validate_result
 
 
+def test_summary_requires_concise_deficiencies():
+    import copy
+    import pytest
+    group = dict(group_id=1, design='只测总量', items=[], correction={})
+    result = issue_summary({'groups': [group]})
+    for field, cap in [('title', 22), ('detail', 50), ('suggestion', 40)]:
+        invalid = copy.deepcopy(result)
+        invalid['issues'][0][field] = '问' * (cap + 1)
+        with pytest.raises(ValueError):
+            validate_result(invalid, [group])
+    for invalid in [dict(result, overview='长' * 61), dict(result, discussion=['问' * 41]),
+                    dict(result, issues=result['issues'] * 9)]:
+        with pytest.raises(ValueError):
+            validate_result(invalid, [group])
+
+
 def transport(module, monkeypatch, summarizer):
     monkeypatch.setenv('AI_API_KEY', 'test')
     monkeypatch.setenv('AI_MODEL', 'mock')
@@ -33,9 +49,9 @@ def transport(module, monkeypatch, summarizer):
 
 def issue_summary(payload):
     groups = [g for g in payload['groups'] if '只测总量' in g['design']]
-    return dict(overview='根据最新提交检查两侧比较。', discussion=['你们的指标能区分两侧来源吗？'],
+    return dict(overview='部分方案未区分两侧来源。', discussion=[],
         issues=[dict(title='未区分两侧来源', detail='只测总量不能判断两侧分布差异。',
-                     suggestion='怎样保留两侧来源信息？', group_ids=[g['group_id'] for g in groups],
+                     suggestion='点评时重点核查两侧来源是否分别保留。', group_ids=[g['group_id'] for g in groups],
                      evidence=[dict(group_id=g['group_id'], quote='只测总量') for g in groups])] if groups else [])
 
 
@@ -100,6 +116,21 @@ def test_stale_summary_hidden_until_new_submission_evaluated(env, monkeypatch):
     asyncio.run(run())
     result = c.get(f'/api/classroom/lessons/{lid}/design-summary').json()
     assert result['status'] == 'ready' and result['result']['issues'] == []
+
+
+def test_summary_prompt_version_change_replaces_cached_verbose_result(env, monkeypatch):
+    from backend import lesson_summary
+    module, c = env; lid = start(c, monkeypatch, 2); student(c, 1)
+    calls = transport(module, monkeypatch, issue_summary)
+    submit(c, lid, 2, {'design': '只测总量'})
+    classroom_login(c, teacher=True)
+    url = f'/api/classroom/lessons/{lid}/design-summary'
+    assert c.get(url).json()['status'] == 'ready'
+    monkeypatch.setattr(lesson_summary, 'SUMMARY_VERSION', 'new-teacher-deficiencies')
+    stale = c.get(url).json()
+    assert stale['stale'] and stale['result'] is None
+    assert c.get(url).json()['status'] == 'ready'
+    assert len(calls) == 2
 
 
 def test_summary_rejects_invented_group_or_quote():

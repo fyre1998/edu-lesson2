@@ -97,7 +97,7 @@ test('automatic photo submission validates image count and total size before upl
 test('teacher summary escapes evidence and hides stale issues',()=>{
   const a=setup();
   const data={status:'ready',submitted:1,evaluated:1,group_count:8,updated:null,groups:[{group_id:2,status:'processing'}],
-    result:{overview:'<script>不要执行</script>',issues:[{title:'两侧未比较',detail:'缺少依据',group_ids:[1],suggestion:'怎样比较？',evidence:[{group_id:1,quote:'<img src=x onerror=bad>'}]}],sources:[{group_id:1,revision:3}],discussion:[]}};
+    result:{overview:'<script>不要执行</script>',issues:[{title:'两侧未比较',detail:'缺少依据',group_ids:[1],suggestion:'重点检查两侧比较依据。',evidence:[{group_id:1,quote:'<img src=x onerror=bad>'}]}],sources:[{group_id:1,revision:3}],discussion:[]}};
   const html=a.run(`teacherSummaryHTML(${JSON.stringify(data)})`);
   assert.doesNotMatch(html,/<script>|<img /);assert.match(html,/提交版本 3/);assert.match(html,/第 2 组：正在评价/);
   data.status='pending';assert.doesNotMatch(a.run(`teacherSummaryHTML(${JSON.stringify(data)})`),/两侧未比较/);
@@ -344,4 +344,61 @@ test('a failed pair pauses auto switching and manual refresh recovers',async()=>
   assert.match(a.el('#comparison').innerHTML,/读取失败/);
   const retry=a.run('compare()');replyPair(a,2);await retry;
   assert.match(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
+});
+
+test('conversation display fetches current-stage chats, escapes text and preserves pair selection',async()=>{
+  const a=presentationSetup();
+  a.run("S.stage=2;S.groups=[{id:1,chats:[{question:'旧缓存对话'}]}]");
+  const pending=a.run('togglePresentationMode()');
+  assert.match(a.calls[2].url,/groups\?stage=2$/);
+  replyPair(a);
+  a.calls[2].reply([{id:1,chats:[{author:'第 1 组',question:'<script>比较两侧</script>',answer:'用什么指标判断？',created:12,images:[{id:'photo',name:'设计照片'}]}]},{id:2,chats:[]}]);
+  await pending;
+  const html=a.el('#comparison').innerHTML;
+  assert.match(html,/第 1 组与 AI 对话/);assert.match(html,/&lt;script&gt;/);
+  assert.match(html,/用什么指标判断/);assert.match(html,/files\/photo\?preview=true/);
+  assert.match(html,/本组在当前环节还没有与 AI 的对话/);
+  assert.doesNotMatch(html,/<script>|旧缓存对话|comparison-score|尚未提交的修改/);
+  assert.equal(a.el('#compareLeft').value,1);assert.equal(a.el('#compareRight').value,2);
+  assert.equal(a.el('#presentationMode').textContent,'展示成果与评分');
+  const back=a.run('togglePresentationMode()');replyPair(a,3);await back;
+  assert.match(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
+});
+
+test('late conversation responses cannot replace work mode and auto rotation keeps conversation mode',async()=>{
+  const a=presentationSetup();
+  const old=a.run('togglePresentationMode()'),current=a.run('togglePresentationMode()');
+  replyPair(a,3);await current;replyPair(a);a.calls[2].reply([{id:1,chats:[{question:'迟到的对话',answer:'迟到回复'}]}]);await old;
+  assert.doesNotMatch(a.el('#comparison').innerHTML,/迟到/);
+  a.run("presentation.mode='chat';togglePresentationAuto()");
+  const pending=[...a.timers.values()][0].fn();
+  replyPair(a,5,[3,4]);a.calls[7].reply([{id:3,chats:[{question:'第三组的问题',answer:'第三组的回复'}]},{id:4,chats:[]}]);await pending;
+  assert.equal(a.run('presentation.mode'),'chat');assert.equal(a.timers.size,1);
+  assert.match(a.el('#comparison').innerHTML,/第 3 组与 AI 对话/);
+  assert.match(a.el('#comparison').innerHTML,/第三组的问题/);
+});
+
+test('stage-one conversation projection includes submitted images and result replies in order',()=>{
+  const a=presentationSetup();a.run('S.lesson.flow_version=3');
+  const work={versions:[{id:'submission',fields:{design:'先前实验思路'},file_ids:['photo'],updated:10,result_match:{status:'ready',matches:[{label:'结果图',image:'/result.png'}],questions:[],uncovered:[]}}],files:[{id:'photo',name:'实验照片',preview:true}]};
+  const group={chats:[{author:'第 1 组',question:'之后的追问',answer:'AI的追问回复',created:20}]};
+  const html=a.run(`presentationChatHTML(${JSON.stringify(work)},${JSON.stringify(group)},1)`);
+  assert.ok(html.indexOf('先前实验思路')<html.indexOf('之后的追问'));
+  assert.match(html,/\/result.png/);assert.match(html,/files\/photo\?preview=true/);
+});
+
+test('summary fullscreen updates together with the teacher panel and hides stale deficiencies',async()=>{
+  const a=presentationSetup();a.run('S.stage=2;S.lesson.flow_version=3');
+  a.el('#summaryPresentationSurface').requestFullscreen=async()=>a.run("document.fullscreenElement=document.querySelector('#summaryPresentationSurface')");
+  a.run("document.exitFullscreen=async()=>{document.fullscreenElement=null;}");
+  a.run('presentSummary()');assert.equal(a.el('#summaryPresentationDialog').open,true);
+  const data={status:'ready',submitted:1,evaluated:1,group_count:8,groups:[],result:{overview:'部分小组未区分两侧来源。',issues:[{title:'未区分向光侧与背光侧',detail:'总量不能反映两侧分布。',group_ids:[1],suggestion:'核查方案能否分别保留两侧来源。',evidence:[{group_id:1,quote:'只测总量'}]}],sources:[{group_id:1,revision:1}],discussion:[]}};
+  a.calls[0].reply(data);await tick();
+  assert.match(a.el('#teacherSummaryBody').innerHTML,/未区分向光侧与背光侧/);
+  assert.match(a.el('#summaryPresentationBody').innerHTML,/未区分向光侧与背光侧/);
+  assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/<details[^>]*open/);
+  const refresh=a.run('refreshTeacherSummary()');a.calls[1].reply({...data,status:'processing',result:null});await refresh;
+  assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/未区分向光侧与背光侧/);
+  a.run('closeSummaryPresentation()');assert.equal(a.el('#summaryPresentationDialog').open,false);
+  assert.equal(a.run('document.fullscreenElement'),null);
 });

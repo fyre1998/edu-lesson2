@@ -23,6 +23,37 @@ function studentFeedbackHTML(score) {
     ${feedback.strengths.length ? `<section class="feedback-strengths"><h3>做得好的地方</h3><ul>${list(feedback.strengths)}</ul></section>` : '<p class="fine">先完善下面这一小步，让你们的思路更清楚。</p>'}
     ${feedback.improvements.length ? `<section class="feedback-improvements"><h3>这次先改 ${Math.min(feedback.improvements.length, 2)} 点</h3><ol>${list(feedback.improvements.slice(0, 2))}</ol></section>` : '<p class="feedback-complete">本次提交已达到本环节要求，保留这些有依据的表达。</p>'}`;
 }
+function completedScore(score) {
+  return !!score && ['ready', 'corrected'].includes(score.status) && Number.isFinite(score.total);
+}
+function displayedScore(score) {
+  return completedScore(score) ? score : score?.retained_score || null;
+}
+function retainedScoreHTML(score) {
+  const retained = score.retained_score;
+  return retained ? `<p class="feedback-version">当前保留第 ${retained.submission_number} 次提交的得分；新评分完成后自动替换。</p>` : '';
+}
+function scoreHistoryHTML(score) {
+  if (!score.history?.length) return '';
+  return `<section class="score-history" aria-label="分数变化记录"><h3>分数变化</h3><ol>${score.history.map(h => `<li${h.version_id === score.version_id ? ' class="is-current"' : ''}><span>第 ${h.submission_number} 次${h.previous_task ? ' · 旧任务' : ''}</span><strong>${h.total} <small>/ ${h.maximum}</small></strong>${h.status === 'corrected' ? '<small>教师复核</small>' : ''}</li>`).join('')}</ol></section>`;
+}
+function scoreForLatestSubmission(score, versions = []) {
+  const latest = versions.at(-1);
+  if (!latest?.id || latest.id === score.version_id || latest.revision <= (score.revision || 0)) return score;
+  // Work can arrive before the score poll. Retain the completed mark, but never
+  // attach its feedback to the newer submission.
+  const history = [...(score.history || [])];
+  if (completedScore(score) && !history.some(h => h.version_id === score.version_id)) {
+    history.push({version_id:score.version_id, revision:score.revision, total:score.total,
+      maximum:score.maximum, status:score.status, submission_number:score.submission_number || versions.findIndex(v => v.id === score.version_id) + 1 || 1});
+  }
+  const current = latest.assessment || {version_id:latest.id, revision:latest.revision,
+    maximum:score.maximum, total:null, items:[], feedback:null, updated:latest.updated,
+    status:latest.fields?.phase === 'model' ? 'model_submitted' : 'pending'};
+  if (completedScore(current)) history.push({...current, submission_number:versions.length});
+  return {...score, ...current, history, submission_number:versions.length,
+    retained_score:completedScore(current) ? null : history.findLast(h => !h.previous_task) || score.retained_score || null};
+}
 function renderStudentScore(scores) {
   const bubble = $('#studentScoreBubble');
   if (!S.user || isTeacher() || !S.lesson || ![2, 3].includes(S.lesson.flow_version) || !scores) {
@@ -30,28 +61,22 @@ function renderStudentScore(scores) {
   }
   let score = scores.stages.find(s => s.stage === S.stage);
   if (!score) { resetScoreBubble(); return; }
-  const latest = S.work?.versions?.at(-1);
-  // A newly submitted version can arrive before the next scores poll.
-  // Never show the previous version's feedback as the new assessment.
-  if (latest?.id && latest.id !== score.version_id && latest.revision > (score.revision || 0)) {
-    score = {...score, version_id:latest.id, revision:latest.revision, total:null, items:[], feedback:null,
-      status:latest.fields.phase === 'model' ? 'model_submitted' : 'pending'};
-  }
+  score = scoreForLatestSubmission(score, S.work?.versions);
   const context = `${S.user.groupId}:${S.lesson.id}:${S.stage}`;
-  const completed = ['ready', 'corrected'].includes(score.status);
+  const completed = completedScore(score), displayed = displayedScore(score);
   const result = (completed || ['needs_clarification','failed'].includes(score.status)) ? JSON.stringify([score.version_id, score.status, score.total, score.feedback]) : '';
   if (bubble.dataset.context !== context) {
     bubble.dataset.context = context;
     bubble.dataset.result = '';
-    setScoreBubbleExpanded(completed || score.status === 'needs_clarification' || score.status === 'failed');
+    setScoreBubbleExpanded(!!displayed || score.status === 'needs_clarification' || score.status === 'failed');
   }
   if (result && bubble.dataset.result !== result) setScoreBubbleExpanded(true);
   bubble.dataset.result = result;
-  bubble.dataset.editable = String((completed || score.status === 'needs_clarification') && S.lesson.status === 'live');
+  bubble.dataset.editable = String((!!displayed || score.status === 'needs_clarification') && S.lesson.status === 'live');
   show('#scoreBubbleActions', bubble.dataset.editable === 'true' && !bubble.classList.contains('is-collapsed'));
   show('#studentScoreBubble', true);
-  $('#scoreBubbleStage').textContent = `环节 ${S.stage} · ${scoreStatus[score.status] || score.status}`;
-  $('#scoreBubblePoints').textContent = `${score.total ?? '—'} / ${score.maximum}`;
+  $('#scoreBubbleStage').textContent = `环节 ${S.stage} · ${score.retained_score ? '新提交' : ''}${scoreStatus[score.status] || score.status}${score.retained_score ? ' · 保留上次得分' : ''}`;
+  $('#scoreBubblePoints').textContent = `${displayed?.total ?? '—'} / ${displayed?.maximum ?? score.maximum}`;
   const draftChanged = completed && (S.edit !== S.savedEdit || S.work?.work.revision > score.revision);
   const snapshot = JSON.stringify([context, score, scores.total, scores.graded, draftChanged, S.lesson.status]);
   if (bubble.dataset.snapshot === snapshot) return;
@@ -65,8 +90,9 @@ function renderStudentScore(scores) {
     failed:S.lesson.flow_version===3?'成果已保存，评分暂未完成，可重试，无需重复提交。':'成果已保存，评分暂未完成。请老师在观察台点击“重试评分”，无需重复提交。'
   };
   const visibleScores = scores.stages.map(s => s.stage === S.stage ? score : s);
-  const total = visibleScores.some(s => s.total !== null) ? visibleScores.reduce((n,s) => n + (s.total || 0), 0) : '—';
+  const total = visibleScores.some(s => displayedScore(s)) ? visibleScores.reduce((n,s) => n + (displayedScore(s)?.total || 0), 0) : '—';
   $('#studentScore').innerHTML = `<div class="bubble-total">本组累计 <strong>${total} / 100</strong></div>
+    ${retainedScoreHTML(score)}${scoreHistoryHTML(score)}
     ${completed ? `<p class="feedback-version">${draftChanged ? '已修改，待再次提交。以下仍是上次提交的评价。' : '针对本环节最新提交的评价'}</p>${studentFeedbackHTML(score)}
       <details class="feedback-breakdown"><summary>查看分项得分</summary>${score.items.map(i => `<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points ?? '—'} / ${i.maximum}</strong></div>`).join('')}</details>
       ${S.lesson.status === 'live' ? '<p class="fine feedback-footnote">改好后再次提交，即可获得新评分；每次提交都会保留。</p>' : '<p class="fine">本课已归档，可查看评价与历次成果。</p>'}` : `<p class="feedback-waiting" role="status">${messages[score.status] || '正在同步评分…'}</p>${isInquiry()&&S.lesson.status==='live'&&(['failed'].includes(score.status)||(['pending','processing'].includes(score.status)&&Date.now()/1000-score.updated>=180))?`<button type="button" data-inquiry-score-retry="${esc(score.version_id)}">重试评分</button>`:''}`}`;

@@ -171,6 +171,10 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .feedback-improvements{padding:12px;background:#fff7e7;border:1px solid #eddbb5;border-radius:12px;margin-bottom:12px}.feedback-improvements h3{color:#805615}
 .feedback-complete{color:#22684f;background:#edf7f2;padding:12px;border-radius:12px}.feedback-breakdown{border-top:1px solid var(--line);margin-top:12px}
 .feedback-revise{width:100%;margin-top:12px}.feedback-footnote{margin:8px 0 0}.feedback-waiting{margin:14px 0 0}
+.score-history{padding:12px 0;margin:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.score-history h3{font-size:.85rem;margin:0 0 8px}.score-history ol{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0}
+.score-history li,.score-bubble-body .score-history li{display:grid;gap:2px;margin:0;padding:7px 11px;border:1px solid var(--line);border-radius:10px;background:#f5f7fa;line-height:1.5;white-space:normal}
+.score-history li.is-current{border-color:#aac6ec;background:#edf4ff}.score-history li>span,.score-history small{font-size:.7rem;color:var(--muted);font-weight:400}.score-history strong{font-size:1rem;font-variant-numeric:tabular-nums}
 .score-bubble-actions{display:flex;gap:8px;flex:none;padding:12px 16px;border-top:1px solid var(--line);background:#f8fbff}.score-bubble-actions button{font-size:.8rem}.score-bubble-actions .primary{flex:1}
 .score-bubble.is-left{left:215px;right:auto}
 .score-bubble.is-collapsed{width:340px}.score-bubble.is-collapsed .score-bubble-toggle{min-height:68px}

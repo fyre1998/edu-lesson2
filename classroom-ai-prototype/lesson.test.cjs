@@ -292,6 +292,23 @@ function presentedWork(id,status='ready'){
 }
 function replyPair(a,offset=0,ids=[1,2]){ids.forEach((id,i)=>a.calls[offset+i].reply(presentedWork(id)));}
 
+test('teacher details and projection keep the previous mark and show numeric history during grading',()=>{
+  const a=presentationSetup(), w=presentedWork(1,'processing');
+  const previous={version_id:'old',submission_number:1,total:12,maximum:20,status:'ready'};
+  Object.assign(w.scores.stages[0],{total:null,retained_score:previous,history:[previous]});
+  Object.assign(w.scores,{total:42,graded:2});
+  const projection=a.run(`presentationScoreHTML(${JSON.stringify(w)})`);
+  const teacher=a.run(`scoreHTML(${JSON.stringify(w.scores)},true)`);
+  assert.match(projection,/本环节 12/);
+  assert.match(projection,/新提交评分中/);
+  for(const html of [projection,teacher]){
+    assert.match(html,/当前保留第 1 次提交的得分/);
+    assert.match(html,/分数变化.*第 1 次.*12 <small>\/ 20/s);
+    assert.doesNotMatch(html,/第 1 组请统一观察时间/);
+  }
+  assert.match(teacher,/data-score-retry="v1"/);
+});
+
 test('presentation pairs current-stage score and advice with the submitted work, including zero and pending scores',async()=>{
   const a=presentationSetup();const pending=a.run('compare()');replyPair(a);await pending;
   const html=a.el('#comparison').innerHTML;

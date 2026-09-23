@@ -269,7 +269,11 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
         curriculum = v3 if config(lesson)[0] == 3 else v2
         result=[]
         for stage,rubric in curriculum.RUBRIC.items():
-            v=session.scalar(select(Version).where(Version.lesson_id==lesson.id,Version.group_id==group,Version.stage==stage).order_by(Version.revision.desc()))
+            versions = session.execute(select(Version, Assessment).outerjoin(
+                Assessment, Assessment.version_id == Version.id).where(
+                Version.lesson_id == lesson.id, Version.group_id == group,
+                Version.stage == stage).order_by(Version.revision)).all()
+            v = versions[-1][0] if versions else None
             entry = score_entry(session, v, stage, rubric, curriculum, user)
             assessment = session.get(Assessment, v.id) if v else None
             if curriculum is v3 and assessment and assessment.rubric_version != v3.RUBRIC_VERSION:
@@ -277,8 +281,24 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                 entry.update(status='previous_task', total=None, feedback=None)
                 entry['items'] = [dict(key=r[0], label=r[1], maximum=r[2], points=None,
                                        missing=False, hint='') for r in rubric]
+            history = []
+            for number, (version, assessment) in enumerate(versions, 1):
+                if not assessment or (assessment.status != 'ready' and not json.loads(assessment.correction)):
+                    continue
+                scored = score_entry(session, version, stage, rubric, curriculum, user)
+                if scored['total'] is not None:
+                    history.append(dict(version_id=version.id, revision=version.revision,
+                        submission_number=number, total=scored['total'], maximum=scored['maximum'],
+                        status=scored['status'], updated=scored['updated'],
+                        previous_task=curriculum is v3 and assessment.rubric_version != v3.RUBRIC_VERSION))
+            # Keep the latest submission and its status intact. Pending, failed or
+            # unreadable work cannot erase the most recent completed mark.
+            entry['history'] = history
+            entry['submission_number'] = len(versions)
+            entry['retained_score'] = next((h for h in reversed(history) if not h['previous_task']), None) if entry['total'] is None and entry['status'] != 'previous_task' else None
             result.append(entry)
-        return dict(stages=result,total=sum(r['total'] or 0 for r in result),graded=sum(r['total'] is not None for r in result),maximum=100)
+        totals = [r['total'] if r['total'] is not None else (r['retained_score'] or {}).get('total') for r in result]
+        return dict(stages=result,total=sum(t or 0 for t in totals),graded=sum(t is not None for t in totals),maximum=100)
 
     def score_entry(session, v, stage, rubric, curriculum, user):
         a=session.get(Assessment,v.id) if v else None

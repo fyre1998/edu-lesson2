@@ -37,12 +37,53 @@ test('a completed score opens persistent feedback; polling preserves a user coll
   a.run('renderStudentScore(scores)');
   assert.equal(a.el('#scoreBubbleToggle').attributes['aria-expanded'],'true');
 });
-test('a submitted version awaiting the next poll hides outdated scores and feedback',()=>{
+test('a submitted version awaiting the next poll retains the score with a clear version label',()=>{
   const a=setup();a.S.work.versions=[{id:'v2',revision:2,fields:{}}];
   a.run('renderStudentScore(scores)');
-  assert.equal(a.el('#scoreBubblePoints').textContent,'— / 20');
+  assert.equal(a.el('#scoreBubblePoints').textContent,'12 / 20');
   assert.doesNotMatch(a.el('#studentScore').innerHTML,/保留透明罩对照/);
   assert.match(a.el('#studentScore').innerHTML,/正在排队评分/);
+  assert.match(a.el('#studentScore').innerHTML,/当前保留第 1 次提交的得分/);
+  assert.match(a.el('#studentScore').innerHTML,/分数变化/);
+  assert.match(a.el('#studentScore').innerHTML,/本组累计 <strong>12 \/ 100/);
+});
+for(const status of ['pending','processing','failed','needs_clarification'])test(`${status} survives reload with the previous zero score and numeric history`,()=>{
+  const a=setup();
+  const previous={version_id:'v1',revision:1,submission_number:1,status:'corrected',total:0,maximum:20};
+  Object.assign(a.score,{version_id:'v2',revision:2,total:null,status,feedback:null,items:[],retained_score:previous,history:[previous]});
+  a.S.work.versions=[{id:'v2',revision:2,fields:{}}];
+  a.run('renderStudentScore(scores)');
+  assert.equal(a.el('#scoreBubblePoints').textContent,'0 / 20');
+  assert.equal(a.el('#scoreBubbleToggle').attributes['aria-expanded'],'true');
+  assert.match(a.el('#scoreBubbleStage').textContent,/保留上次得分/);
+  assert.match(a.el('#studentScore').innerHTML,/第 1 次.*0 <small>\/ 20.*教师复核/s);
+  assert.match(a.el('#studentScore').innerHTML,/本组累计 <strong>0 \/ 100/);
+  assert.doesNotMatch(a.el('#studentScore').innerHTML,/保留透明罩对照|明确观察什么变化/);
+});
+test('new results replace the visible score, retain lower and higher past marks, and reopen the bubble',()=>{
+  const a=setup();
+  a.score.history=[{version_id:'v1',submission_number:1,total:12,maximum:20,status:'ready'}];
+  a.run('renderStudentScore(scores);setScoreBubbleExpanded(false)');
+  const previous={...a.score.history[0]};
+  Object.assign(a.score,{version_id:'v2',revision:2,status:'processing',total:null,retained_score:previous});
+  a.S.work.versions=[{id:'v2',revision:2,fields:{}}];
+  a.run('renderStudentScore(scores)');
+  assert.equal(a.el('#scoreBubblePoints').textContent,'12 / 20');
+  assert.equal(a.el('#scoreBubbleToggle').attributes['aria-expanded'],'false');
+  Object.assign(a.score,{status:'ready',total:8,retained_score:null});
+  a.score.history.push({version_id:'v2',submission_number:2,total:8,maximum:20,status:'ready'});
+  a.run('renderStudentScore(scores)');
+  assert.equal(a.el('#scoreBubblePoints').textContent,'8 / 20');
+  assert.equal(a.el('#scoreBubbleToggle').attributes['aria-expanded'],'true');
+  assert.match(a.el('#studentScore').innerHTML,/第 1 次.*12 <small>\/ 20.*第 2 次.*8 <small>\/ 20/s);
+  assert.doesNotMatch(a.el('#studentScore').innerHTML,/当前保留/);
+});
+test('a completed work response wins over an older group poll without losing history',()=>{
+  const a=setup();
+  a.S.work.versions.push({id:'v2',revision:2,fields:{},assessment:{...a.score,version_id:'v2',revision:2,total:18}});
+  a.run('renderStudentScore(scores)');
+  assert.equal(a.el('#scoreBubblePoints').textContent,'18 / 20');
+  assert.match(a.el('#studentScore').innerHTML,/第 1 次.*12 <small>\/ 20.*第 2 次.*18 <small>\/ 20/s);
 });
 test('draft edits label the assessment as previous and cannot erase the advice',()=>{
   const a=setup();a.S.edit=1;a.run('renderStudentScore(scores)');

@@ -10,8 +10,9 @@ import time
 from urllib.request import urlopen
 
 PROJECT = Path(__file__).resolve().parents[1]
-DATA = PROJECT / 'work' / 'four-stage-preview'
-URL = 'http://127.0.0.1:8011'
+DEFAULT_PORT = 8014
+DATA = PROJECT / 'work' / f'classroom-preview-{DEFAULT_PORT}'
+URL = f'http://127.0.0.1:{DEFAULT_PORT}'
 
 
 def ready():
@@ -25,12 +26,12 @@ def ready():
 def main():
     global DATA, URL
     parser = argparse.ArgumentParser(description='启动独立的本地课堂预览')
-    parser.add_argument('--port', type=int, default=8011)
+    parser.add_argument('--port', type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error('端口应在1024至65535之间')
-    if args.port != 8011:
-        DATA = PROJECT / 'work' / f'classroom-preview-{args.port}'
+    # Preserve the old four-stage preview only when explicitly requested.
+    DATA = PROJECT / 'work' / ('four-stage-preview' if args.port == 8011 else f'classroom-preview-{args.port}')
     URL = f'http://127.0.0.1:{args.port}'
     with socket.socket() as sock:
         sock.settimeout(1)

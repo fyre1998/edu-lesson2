@@ -7,6 +7,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://workbench:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/workbench
       APP_ORIGIN: https://${DOMAIN:?Set DOMAIN in .env}
+      APP_BASE_PATH: ${APP_BASE_PATH:-}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_API_KEY: ${AI_API_KEY:-}

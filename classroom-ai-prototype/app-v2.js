@@ -1,3 +1,4 @@
+const publicURL = globalThis.PublicPaths?.url || (value => value);
 const groups = [
   ['王晓彤', '赵文博', '许佳宁', '江子航'], ['孙语桐', '章明宇', '董欣然', '徐一帆'],
   ['林小雨', '陈思远', '周可欣', '蒋子墨'], ['吴思齐', '郑安然', '冯嘉树', '何若琳'],
@@ -39,7 +40,7 @@ async function api(path, options = {}) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }
-  const response = await fetch('/api/classroom' + path, { ...options, headers });
+  const response = await fetch(publicURL('/api/classroom' + path), { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && path !== '/login') resetSession();
@@ -89,7 +90,7 @@ async function syncGroups() {
       group.files = updated.files.map(file => ({ ...file,
         type: file.preview ? 'IMG' : file.name.split('.').pop().toUpperCase(),
         meta: `${file.uploader} · ${(file.size / 1024).toFixed(1)} KB · ${new Date(file.created * 1000).toLocaleString('zh-CN')}`,
-        previewUrl: file.preview ? `/api/classroom/files/${file.id}?preview=true` : null
+        previewUrl: file.preview ? `${publicURL('/api/classroom/files/')}${file.id}?preview=true` : null
       }));
     }
     if (currentUser.role === 'teacher') {
@@ -105,14 +106,14 @@ async function syncGroups() {
 }
 
 function fileHtml(file) {
-  const url = '/api/classroom/files/' + encodeURIComponent(file.id);
+  const url = publicURL('/api/classroom/files/' + encodeURIComponent(file.id));
   const select = currentUser?.role === 'student' && file.preview
     ? `<button type="button" class="image-select" data-image-id="${escapeHtml(file.id)}" aria-pressed="${selectedImages.has(file.id)}" ${sending ? 'disabled' : ''}>${selectedImages.has(file.id) ? '已选图片' : '发给 AI'}</button>` : '';
   return `<div class="file-item">${file.previewUrl ? `<a href="${url}?preview=true" target="_blank" rel="noopener"><img class="file-thumbnail" src="${escapeHtml(file.previewUrl)}" alt="${escapeHtml(file.name)}" /></a>` : `<span class="file-icon doc">${escapeHtml(file.type)}</span>`}<p><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.meta)}</small></p><div class="file-actions"><a class="file-download" href="${url}" download="${escapeHtml(file.name)}">下载</a>${select}</div></div>`;
 }
 
 function messageImages(message) {
-  return (message.images || []).length ? `<div class="message-images">${message.images.map(file => `<a href="/api/classroom/files/${encodeURIComponent(file.id)}?preview=true" target="_blank" rel="noopener"><img src="/api/classroom/files/${encodeURIComponent(file.id)}?preview=true" alt="${escapeHtml(file.name)}" loading="lazy" /><span>${escapeHtml(file.name)}</span></a>`).join('')}</div>` : '';
+  return (message.images || []).length ? `<div class="message-images">${message.images.map(file => `<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(file.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(file.id)}?preview=true" alt="${escapeHtml(file.name)}" loading="lazy" /><span>${escapeHtml(file.name)}</span></a>`).join('')}</div>` : '';
 }
 
 function selectImage(file) {
@@ -125,7 +126,7 @@ function selectImage(file) {
 }
 
 function renderSelectedImages() {
-  els.uploadPreview.innerHTML = [...selectedImages.values()].map(file => `<div class="pending-image"><img src="/api/classroom/files/${encodeURIComponent(file.id)}?preview=true" alt="${escapeHtml(file.name)}" /><span>${escapeHtml(file.name)}</span><button type="button" data-remove-image="${escapeHtml(file.id)}" aria-label="移除图片 ${escapeHtml(file.name)}" ${sending ? 'disabled' : ''}>×</button></div>`).join('');
+  els.uploadPreview.innerHTML = [...selectedImages.values()].map(file => `<div class="pending-image"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(file.id)}?preview=true" alt="${escapeHtml(file.name)}" /><span>${escapeHtml(file.name)}</span><button type="button" data-remove-image="${escapeHtml(file.id)}" aria-label="移除图片 ${escapeHtml(file.name)}" ${sending ? 'disabled' : ''}>×</button></div>`).join('');
   $('#imageSelectionHint').textContent = selectedImages.size ? `待发送 ${selectedImages.size}/4 张图片 · 点击发送后交给 AI` : '拍照或上传图片后可发送给 AI，也可从资料夹选择。';
 }
 

@@ -44,7 +44,8 @@ def validate(config):
     require('edu-lesson2-app' in services['app']['networks']['gateway'].get('aliases', []),
             'Missing unique application network alias')
     env = services['app'].get('environment', {})
-    require(env.get('APP_ORIGIN') == 'https://lesson2.lsclass.top', 'Wrong public origin')
+    require(env.get('APP_ORIGIN') == 'https://lsclass.top', 'Wrong public origin')
+    require(env.get('APP_BASE_PATH') == '/lesson', 'Wrong public path; lesson 2 requires /lesson')
     require(env.get('APP_INSTANCE_ID') == 'lesson2-production', 'Wrong application identity')
     database_url = env.get('DATABASE_URL', '')
     require(database_url.startswith('postgresql+psycopg://workbench:')

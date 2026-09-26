@@ -45,7 +45,7 @@ class MessageInput(BaseModel):
     stage: int | None = Field(default=None, ge=1, le=5)
 
 
-def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
+def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_path='/'):
     class ClassroomSession(Base):
         __tablename__ = 'classroom_sessions'
         token: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -132,7 +132,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
                                 expires=int(time.time()) + 43200)
         session.add(user)
         session.commit()
-        response.set_cookie(SESSION_COOKIE, token, max_age=43200, httponly=True, secure=secure, samesite='strict', path='/')
+        response.set_cookie(SESSION_COOKIE, token, max_age=43200, httponly=True, secure=secure, samesite='strict', path=cookie_path)
         return public_identity(user)
 
     @router.get('/me')
@@ -143,7 +143,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
     def logout(request: Request, response: Response, session=Depends(db)):
         session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
         session.commit()
-        response.delete_cookie(SESSION_COOKIE, path='/')
+        response.delete_cookie(SESSION_COOKIE, path=cookie_path)
         return {'ok': True}
 
     @router.get('/groups')

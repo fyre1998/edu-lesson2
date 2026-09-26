@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'utf8');
 
-function setup(){
+function setup(scriptURL){
   const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0,cameraOptions;
   const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
@@ -13,6 +13,10 @@ function setup(){
     createCameraCapture:options=>{cameraOptions=options;return {open(){},close(){}};},
     sessionStorage:{setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k),getItem:k=>local.get(k)},
     fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body instanceof FormData?options.body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
+  if(scriptURL){
+    context.URL=URL;context.document.currentScript={src:scriptURL};
+    vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'paths.js'),'utf8'),context);
+  }
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'score-bubble.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
@@ -22,6 +26,18 @@ function setup(){
   return{calls,fields,local,el,timers,camera:cameraOptions,run:code=>vm.runInContext(code,context)};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('subpath classroom sends API requests and renders attachments inside lesson 2',async()=>{
+  const a=setup('https://lsclass.top/lesson/paths.js');
+  const pending=a.run("api('/me')");
+  assert.equal(a.calls[0].url,'/lesson/api/classroom/me');
+  a.calls[0].reply({role:'student'});await pending;
+  const html=a.run("fileHTML({id:'picture',name:'图片',preview:true,size:12,uploader:'本组'},false)");
+  assert.match(html,/href="\/lesson\/api\/classroom\/files\/picture/);
+  assert.match(html,/src="\/lesson\/api\/classroom\/files\/picture\?preview=true"/);
+  assert.doesNotMatch(html,/(href|src)="\/api\//);
+  assert.match(a.run('draftKey()'),/^lesson2:/);
+});
 
 function photoSetup(stage=1){
   const a=setup();a.run(`S.lesson.flow_version=3;S.stage=${stage};S.edit=S.savedEdit=0`);

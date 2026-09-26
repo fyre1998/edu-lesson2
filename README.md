@@ -11,7 +11,8 @@
 | 本地课堂 | <http://127.0.0.1:8015/classroom/> |
 | 本地数据 | `data/lesson2/app.db` 与 `data/lesson2/uploads/` |
 | Compose 项目名 | `edu-lesson2` |
-| 线上入口 | `https://lesson2.lsclass.top/classroom/`，需 DNS 解析生效 |
+| 线上课堂 | `https://lsclass.top/lesson/` |
+| 线上个人工作台 | `https://lsclass.top/lesson/workspace/` |
 | 服务器目录 | `/opt/edu-lesson2` |
 | 专用上线命令 | `/usr/local/sbin/edu-lesson2-deploy` |
 
@@ -75,14 +76,14 @@ node --test classroom-ai-prototype/*.test.cjs
 /usr/local/sbin/edu-lesson2-deploy
 ```
 
-脚本固定使用 `/opt/edu-lesson2`、`fyre1998/edu-lesson2` 的 `main` 和 Compose 项目名 `edu-lesson2`，更新前检查工作区和发布目标，只允许快进更新。服务器独立的校验器还检查域名、数据卷、网络和端口，防止引用第一课数据。`--check` 只检查，不拉取、构建或重启。
+脚本固定使用 `/opt/edu-lesson2`、`fyre1998/edu-lesson2` 的 `main` 和 Compose 项目名 `edu-lesson2`，更新前检查工作区和发布目标，只允许快进更新。服务器独立的校验器还检查主域名、`/lesson` 前缀、数据卷、网络和端口，防止引用第一课数据。`--check` 只检查，不拉取、构建或重启。
 
 第二课使用 `docker-compose.yml` 与 `deploy/compose.production.yml` 两份配置。仅运行 app/db，数据库卷为 `edu-lesson2_postgres`，上传卷为 `edu-lesson2_uploads`；不发布宿主机端口。app 通过 `edu_gateway` 网络上的唯一别名 `edu-lesson2-app` 接入共享 Caddy，db 只连接本课私有网络。继承的根目录 `Caddyfile` 不用于此部署。
 
-服务器共享入口配置由 `/etc/edu-gateway/Caddyfile` 与 `/etc/edu-gateway/lessons/` 管理，独立于两课代码仓库。`deploy/lesson2.caddy` 是第二课入口的配置模板。每次更新第二课不会重启或覆盖 Caddy，也不会更新第一课。第一课的原 `edu-deploy` 命令继续使用 `/opt/edu`，通过 `/etc/edu-deploy/lesson1.override.yml` 保留共享入口挂载。
+服务器共享入口配置由 `/etc/edu-gateway/Caddyfile` 与 `/etc/edu-gateway/lessons/` 管理，独立于两课代码仓库。`deploy/lesson2.caddy` 是需导入现有 `lsclass.top` 站点块内的路径配置，实际放在 `/etc/edu-gateway/lessons/routes/lesson2.caddy`。它将 `/lesson/` 下的请求去掉前缀后转发给第二课；其余路径仍由第一课处理。每次更新第二课不会重启或覆盖 Caddy，也不会更新第一课。第一课的原 `edu-deploy` 命令继续使用 `/opt/edu`，通过 `/etc/edu-deploy/lesson1.override.yml` 保留共享入口挂载。
 
 已有第二课数据时，上线脚本会先短暂停止本课 app，备份数据库、上传文件、环境配置和代码版本，再启动旧服务并构建新版。备份位于 `/var/backups/edu-lesson2/`。构建失败时保留旧应用；新版启动失败会报错，需要按备份和记录的上一提交排查恢复，不会自动回退数据库。不要执行 `docker compose down -v`。
 
-DNS 需新增 `lesson2` 的 A 记录，指向服务器 `212.50.233.200`。保留根域名与其他已有记录。解析生效后共享 Caddy 自动申请该子域名的 HTTPS 证书。
+该方案使用同一域名下的子路径，无需新增 DNS 或证书。生产 `.env` 使用 `DOMAIN=lsclass.top`、`APP_ORIGIN=https://lsclass.top`、`APP_BASE_PATH=/lesson`。第二课的接口、图片和下载路径均保留 `/lesson` 前缀；登录 Cookie 限定 `Path=/lesson`，草稿使用第二课独立命名。两课同属一个浏览器来源，并非浏览器安全边界；服务端课程数据和运行环境仍保持独立。
 
 服务器的 `.env` 与 `.local/production-access.txt` 不进入 Git。第二课不能使用第一课的 `/opt/edu` 目录或 `edu-deploy` 命令。

@@ -28,6 +28,8 @@ UPLOADS.mkdir(exist_ok=True)
 URL = os.getenv('DATABASE_URL', 'sqlite:///' + (DATA / 'app.db').as_posix())
 ORIGIN = os.getenv('APP_ORIGIN', 'http://127.0.0.1:8015').rstrip('/')
 SESSION_COOKIE = 'lesson2_session'
+BASE_PATH = os.getenv('APP_BASE_PATH', '').rstrip('/')
+COOKIE_PATH = BASE_PATH or '/'
 SECURE = ORIGIN.startswith('https://')
 MAX_FILE = 10 * 1024 * 1024
 engine = create_engine(URL, connect_args={'check_same_thread': False} if URL.startswith('sqlite') else {}, pool_pre_ping=True)
@@ -128,7 +130,7 @@ async def protection(request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'same-origin'
     response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-    if request.url.path.startswith('/classroom'):
+    if request.url.path.startswith('/classroom') or (BASE_PATH and not request.url.path.startswith(('/api/', '/workspace'))):
         response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     if request.url.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-store'
@@ -170,7 +172,7 @@ def login_cookie(user, request, response, session):
     token = secrets.token_urlsafe(32)
     session.add(LoginSession(token=digest(token), user_id=user.id, expires=int(time.time()) + 604800))
     session.commit()
-    response.set_cookie(SESSION_COOKIE, token, max_age=604800, httponly=True, secure=SECURE, samesite='strict', path='/')
+    response.set_cookie(SESSION_COOKIE, token, max_age=604800, httponly=True, secure=SECURE, samesite='strict', path=COOKIE_PATH)
     return {'id': user.id, 'username': user.username}
 
 
@@ -205,7 +207,7 @@ def login(body: Credentials, request: Request, response: Response, session: Sess
 def logout(request: Request, response: Response, session: Session = Depends(db)):
     session.execute(delete(LoginSession).where(LoginSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
     session.commit()
-    response.delete_cookie(SESSION_COOKIE, path='/')
+    response.delete_cookie(SESSION_COOKIE, path=COOKIE_PATH)
     return {'ok': True}
 
 
@@ -388,7 +390,19 @@ def health(session: Session = Depends(db)):
 
 from .classroom import build_router
 
-classroom_router = build_router(Base, db, digest, rate_limit, call_ai, SECURE, UPLOADS)
+classroom_router = build_router(Base, db, digest, rate_limit, call_ai, SECURE, UPLOADS, COOKIE_PATH)
 app.include_router(classroom_router)
+
+
+@app.get('/paths.js', include_in_schema=False)
+@app.get('/workspace/paths.js', include_in_schema=False)
+def public_paths():
+    return FileResponse(ROOT / 'classroom-ai-prototype' / 'paths.js', media_type='text/javascript')
+
+
 app.mount('/classroom', StaticFiles(directory=ROOT / 'classroom-ai-prototype', html=True), name='classroom')
-app.mount('/', StaticFiles(directory=ROOT / 'frontend', html=True), name='frontend')
+if BASE_PATH:
+    app.mount('/workspace', StaticFiles(directory=ROOT / 'frontend', html=True), name='frontend')
+    app.mount('/', StaticFiles(directory=ROOT / 'classroom-ai-prototype', html=True), name='classroom-home')
+else:
+    app.mount('/', StaticFiles(directory=ROOT / 'frontend', html=True), name='frontend')

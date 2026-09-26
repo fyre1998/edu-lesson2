@@ -1,16 +1,11 @@
-lesson2.lsclass.top {
-    encode zstd gzip
-    @classroom_files path /api/classroom/files
-    handle @classroom_files {
-        request_body {
-            max_size 21MB
-        }
-        reverse_proxy edu-lesson2-app:8000
+# Import this snippet inside the existing lsclass.top site block.
+# It adds only /lesson paths, preserving the first lesson's existing handlers.
+redir /lesson /lesson/ 308
+redir /lesson/workspace /lesson/workspace/ 308
+redir /lesson/classroom /lesson/classroom/ 308
+handle_path /lesson/* {
+    request_body {
+        max_size 21MB
     }
-    handle {
-        request_body {
-            max_size 11MB
-        }
-        reverse_proxy edu-lesson2-app:8000
-    }
+    reverse_proxy edu-lesson2-app:8000
 }

@@ -1,4 +1,5 @@
 'use strict';
+const publicURL = globalThis.PublicPaths?.url || (value => value);
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -13,7 +14,7 @@ function toast(text) { $('#toast').textContent=text; $('#toast').classList.remov
 function show(id, visible) { $(id).classList.toggle('hidden',!visible); }
 function isTeacher() { return S.user?.role==='teacher'; }
 function base() { return '/lessons/'+encodeURIComponent(S.lesson.id); }
-function draftKey() { return `auxin:${S.user.groupId}:${S.lesson.id}:${S.stage}`; }
+function draftKey() { return `lesson2:${S.user.groupId}:${S.lesson.id}:${S.stage}`; }
 function busy() { return S.uploading || S.sending || S.loading || S.submitting || S.extracting; }
 function renderVoiceControls() {
   const voice=globalThis.lessonVoice, state=voice?.state||'idle', target=voice?.target;
@@ -44,7 +45,7 @@ function handleFieldVoiceClick(event) {
 async function api(path, options={}) {
   const headers={'X-Workbench':'1'};
   if(options.body && !(options.body instanceof FormData)) { headers['Content-Type']='application/json'; options.body=JSON.stringify(options.body); }
-  const response=await fetch('/api/classroom'+path,{...options,headers,cache:'no-store'});
+  const response=await fetch(publicURL('/api/classroom'+path),{...options,headers,cache:'no-store'});
   const data=await response.json().catch(()=>({}));
   if(!response.ok) { if(response.status===401 && path!=='/login') reset(); const e=new Error(typeof data.detail==='string'?data.detail:'请求未完成，请检查输入或网络后重试'); e.status=response.status; throw e; }
   return data;
@@ -132,7 +133,7 @@ function renderFrame() {
   }
 }
 function materialHTML(m) {
-  return `<span class="kind">${esc(m.kind)}</span><h3 class="material-title">${esc(m.title)}</h3>${m.images.map(i=>`<figure class="material-figure" data-material-id="${esc(m.id)}"><a href="${esc(i.url)}" target="_blank" rel="noopener"><img src="${esc(i.url)}" alt="${esc(i.caption)}" loading="lazy"></a><figcaption>${esc(i.caption)}</figcaption></figure>`).join('')}${m.paragraphs.map(p=>`<p class="material-text">${esc(p)}</p>`).join('')}${m.rows?`<table class="material-table"><thead><tr><th>处理</th><th>材料</th><th>结果</th></tr></thead><tbody>${m.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`:''}<p class="material-source">来源：${esc(m.source)}</p>`;
+  return `<span class="kind">${esc(m.kind)}</span><h3 class="material-title">${esc(m.title)}</h3>${m.images.map(i=>`<figure class="material-figure" data-material-id="${esc(m.id)}"><a href="${esc(publicURL(i.url))}" target="_blank" rel="noopener"><img src="${esc(publicURL(i.url))}" alt="${esc(i.caption)}" loading="lazy"></a><figcaption>${esc(i.caption)}</figcaption></figure>`).join('')}${m.paragraphs.map(p=>`<p class="material-text">${esc(p)}</p>`).join('')}${m.rows?`<table class="material-table"><thead><tr><th>处理</th><th>材料</th><th>结果</th></tr></thead><tbody>${m.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`:''}<p class="material-source">来源：${esc(m.source)}</p>`;
 }
 function renderMaterials() {
   $('#materialTabs').innerHTML=S.content.materials.map(m=>`<button id="tab-${esc(m.id)}" role="tab" aria-selected="${S.material===m.id}" aria-controls="materialBody" class="${S.material===m.id?'active':''}" data-material="${esc(m.id)}">${esc(m.title.split('：')[0])}</button>`).join('');
@@ -153,7 +154,7 @@ function renderStudent() {
   renderExtras();
 }
 function assignmentHTML(a) {
-  return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(a.image)}" target="_blank" rel="noopener"><img src="${esc(a.image)}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
+  return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(publicURL(a.image))}" target="_blank" rel="noopener"><img src="${esc(publicURL(a.image))}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
 }
 function isInquiry() { return S.lesson?.flow_version===3; }
 function matchStatus(m) {
@@ -163,7 +164,7 @@ function matchStatus(m) {
 function matchHTML(m,actions=true) {
   if(!m)return '<p class="notice">提交简要思路或任务单照片后，将在这里显示对应的实验结果参考图。本部分不计分。</p>';
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
-  return `<section class="inquiry-results" aria-label="本次提交的实验结果参考图"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.map(item=>`<figure class="inquiry-result"><figcaption><span class="kind">教师提供的实验结果参考图</span><h3>${esc(item.label)}</h3><p>对应思路：${esc(item.excerpt)}</p></figcaption><a href="${esc(item.image)}" target="_blank" rel="noopener"><img src="${esc(item.image)}" alt="${esc(item.label)}的教师原图" loading="lazy"></a></figure>`).join('')}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应参考图：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
+  return `<section class="inquiry-results" aria-label="本次提交的实验结果参考图"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.map(item=>`<figure class="inquiry-result"><figcaption><span class="kind">教师提供的实验结果参考图</span><h3>${esc(item.label)}</h3><p>对应思路：${esc(item.excerpt)}</p></figcaption><a href="${esc(publicURL(item.image))}" target="_blank" rel="noopener"><img src="${esc(publicURL(item.image))}" alt="${esc(item.label)}的教师原图" loading="lazy"></a></figure>`).join('')}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应参考图：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
 function versionExtras(v) {
   if(!isInquiry())return '';
@@ -203,7 +204,7 @@ function renderExtras() {
   $('#versionsBody').innerHTML=count?w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次提交 · ${stamp(v.updated)}</h3><p class="fine">${esc(v.author)}</p>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join(''):'<p class="fine">提交后，原始记录与后续修改会显示在这里。</p>';
 }
 function fileHTML(f,actions=false) {
-  const url='/api/classroom/files/'+encodeURIComponent(f.id), included=S.work?.work.file_ids.includes(f.id);
+  const url=publicURL('/api/classroom/files/'+encodeURIComponent(f.id)), included=S.work?.work.file_ids.includes(f.id);
   return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'?'disabled':''}>${included?'已附成果':'附到成果'}</button>${f.preview?`<button type="button" data-ai-image="${esc(f.id)}">交给 AI</button>`:''}</div>`:''}</div>`;
 }
 function fieldsHTML(fields, projection=false) {
@@ -214,7 +215,7 @@ function fieldsHTML(fields, projection=false) {
   return `<dl${projection?' class="comparison-fields"':''}>`+list.map(f=>`${projection?`<div class="comparison-field ${f.input==='short'?'is-short':''}">`:''}<dt>${esc(f.label)}</dt><dd>${esc(f.options?.[fields[f.key]]||fields[f.key]||'尚未填写')}</dd>${projection?'</div>':''}`).join('')+'</dl>';
 }
 function versionFiles(ids,files) {
-  return ids.map(id=>files.find(f=>f.id===id)).filter(Boolean).map(f=>f.preview?`<a href="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img class="record-image" src="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:fileHTML(f)).join('');
+  return ids.map(id=>files.find(f=>f.id===id)).filter(Boolean).map(f=>f.preview?`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img class="record-image" src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:fileHTML(f)).join('');
 }
 function collectFields() { return {...S.work?.work.fields,...Object.fromEntries($$('[data-field]').map(el=>[el.dataset.field,el.value]))}; }
 function localDraft() { if(!S.user || isTeacher() || !S.lesson) return; try { sessionStorage.setItem(draftKey(),JSON.stringify({fields:collectFields(),file_ids:S.work.work.file_ids,revision:S.work.work.revision})); } catch {} }
@@ -418,7 +419,7 @@ async function control(body) { await api(base(),{method:'PATCH',body}); await lo
 async function createLesson() { const title=$('#newLessonTitle')?.value||'生长素探究课 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
 function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
 function chatsHTML(chats,versions=[],files=[]) {
-  const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(c.answer)}</p></div>`}));
+  const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(c.answer)}</p></div>`}));
   versions.forEach((v,i)=>entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次实验思路</div><p>${esc(v.fields.design||'请查看本次提交的实验思路照片。')}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次实验结果</div>${v.result_match?matchHTML(v.result_match):'<p class="muted">已收到本次思路，正在准备对应的结果图…</p>'}</div></div>`}));
   return entries.sort((a,b)=>a.time-b.time).map(entry=>entry.html).join('');
 }
@@ -427,7 +428,7 @@ function renderChat() {
   const g=S.groups.find(g=>g.id===S.user.groupId), box=$('#chatMessages');
   const versions=isInquiry()&&S.stage===1?(S.work?.versions||[]):[];
   let html=(S.content.opener?`<div class="chat-entry opener"><div class="speaker">本环节引导</div><p>${esc(S.content.opener)}</p></div>`:'')+chatsHTML(g?.chats||[],versions,S.work?.files||[]);
-  if(S.pending) html+=`<div class="chat-entry student"><div class="speaker">${esc(S.user.name)}</div><p>${esc(S.pending.message||'请查看这些图片。')}</p>${S.pending.images.map(f=>`<img src="/api/classroom/files/${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}">`).join('')}</div><div class="chat-entry"><p class="${S.pending.error?'error':'muted'}">${esc(S.pending.error||'AI 正在思考…')}</p>${S.pending.error?'<button id="retryChat">重试这条消息</button>':''}</div>`;
+  if(S.pending) html+=`<div class="chat-entry student"><div class="speaker">${esc(S.user.name)}</div><p>${esc(S.pending.message||'请查看这些图片。')}</p>${S.pending.images.map(f=>`<img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}">`).join('')}</div><div class="chat-entry"><p class="${S.pending.error?'error':'muted'}">${esc(S.pending.error||'AI 正在思考…')}</p>${S.pending.error?'<button id="retryChat">重试这条消息</button>':''}</div>`;
   if(box.innerHTML!==(html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>')) {box.innerHTML=html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>';const scroller=$('#conversationScroll');if(S.content.opener||(g?.chats?.length||0)>0||versions.length||S.pending)scroller.scrollTop=scroller.scrollHeight;}
   $('#quickPrompts').innerHTML=(S.content.content.prompts||[]).map(p=>`<button type="button" data-prompt="${esc(p)}">${esc(p)}</button>`).join('');
   $('#chatAttachments').innerHTML=[...S.images.values()].map(f=>`<div class="chat-attachment"><span>${esc(f.name)}</span><button type="button" data-remove-ai="${esc(f.id)}" aria-label="移除${esc(f.name)}">×</button></div>`).join('');
@@ -615,12 +616,12 @@ async function adjust() {
 }
 let scenarioList=[];
 async function scenarioOptions(selected=0){scenarioList=await api(base()+'/scenarios/'+encodeURIComponent($('#adjustTreatment').value));$('#adjustVariant').innerHTML=scenarioList.map(s=>`<option value="${s.variant}">${'ABC'[s.variant]} · ${esc(s.label)}</option>`).join('');$('#adjustVariant').value=selected;renderScenarioPreview();}
-function renderScenarioPreview(){const s=scenarioList.find(s=>s.variant===Number($('#adjustVariant').value));$('#adjustPreview').innerHTML=s?`<img class="record-image" src="${esc(s.image)}" alt="${esc(s.label)}"><span class="fine">${esc(s.boundary)}</span>`:'';}
+function renderScenarioPreview(){const s=scenarioList.find(s=>s.variant===Number($('#adjustVariant').value));$('#adjustPreview').innerHTML=s?`<img class="record-image" src="${esc(publicURL(s.image))}" alt="${esc(s.label)}"><span class="fine">${esc(s.boundary)}</span>`:'';}
 const camera=createCameraCapture({onConfirm:f=>uploadFiles([f],{submitToAI:isInquiry()}),onFile:()=>$('#fileInput').click()});
 $('#loginGroup').addEventListener('change',names);
 $$('[data-role]').forEach(b=>b.addEventListener('click',()=>{S.role=b.dataset.role;$$('[data-role]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});show('#groupField',S.role==='student');show('#teacherPasswordField',S.role==='teacher');$('#teacherPassword').required=S.role==='teacher';names();}));
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginError').textContent='';$('#loginSubmit').disabled=true;try{const user=await api('/login',{method:'POST',body:{role:S.role,name:S.role==='teacher'?$('#loginName').value:'',groupId:S.role==='student'?Number($('#loginGroup').value):null,code:$('#classCode').value,teacherPassword:$('#teacherPassword').value}});await activate(user);}catch(err){$('#loginError').textContent=err.message;}finally{$('#loginSubmit').disabled=false;}});
-$('#logoutButton').addEventListener('click',async()=>{if(!await flush())return;try{await api('/logout',{method:'POST'});Object.keys(sessionStorage).filter(k=>k.startsWith('auxin:')).forEach(k=>sessionStorage.removeItem(k));reset();}catch(e){toast(e.message);}});
+$('#logoutButton').addEventListener('click',async()=>{if(!await flush())return;try{await api('/logout',{method:'POST'});Object.keys(sessionStorage).filter(k=>k.startsWith('lesson2:')).forEach(k=>sessionStorage.removeItem(k));reset();}catch(e){toast(e.message);}});
 $('#lessonSelect').addEventListener('change',async e=>{const id=e.target.value;if(!await flush()){lessonOptions();return;}await loadLessons(id).catch(e=>toast(e.message));});
 $('#stageNav').addEventListener('click',async e=>{const b=e.target.closest('[data-stage]');if(!b||b.disabled)return;if(await flush())await loadStage(Number(b.dataset.stage)).catch(()=>{});});
 $('#materialTabs').addEventListener('click',e=>{const b=e.target.closest('[data-material]');if(b){S.material=b.dataset.material;renderMaterials();}});

@@ -6,7 +6,7 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'lesson.js'),'u
 
 function setup(scriptURL){
   const elements=new Map(), local=new Map(), calls=[], timers=new Map();let timerId=0,cameraOptions;
-  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
+  const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){},contains(){return false;}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
     FormData,Blob,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
@@ -434,4 +434,26 @@ test('summary fullscreen updates together with the teacher panel and hides stale
   assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/未区分向光侧与背光侧/);
   a.run('closeSummaryPresentation()');assert.equal(a.el('#summaryPresentationDialog').open,false);
   assert.equal(a.run('document.fullscreenElement'),null);
+});
+
+
+test('grape lesson renders fixed mass rows, no image URLs, and escapes excerpts',()=>{
+  const h=setup();
+  h.run("S.lesson.flow_version=4; S.stage=1");
+  const html=h.run(`grapeResultsHTML({revision:1,status:'ready',matches:[{label:'水处理对照',mass:170,uncertainty:5.7,significance:'d',excerpt:'<img onerror=alert(1)>'}],questions:[],uncovered:['苹果GA3'],error:''})`);
+  assert.match(html,/170 ± 5.7/);
+  assert.match(html,/百粒质量 \/ g/);
+  assert.match(html,/暂无对应课件数据：苹果GA3/);
+  assert.match(html,/&lt;img/);
+  assert.doesNotMatch(html,/<img|result\.png/);
+  assert.equal(h.run('isInquiry()'),true);
+  assert.equal(h.run('isGrape()'),true);
+});
+
+test('grape stage two retains the student score bubble and revision advice',()=>{
+  const h=setup();
+  h.run(`S.lesson.flow_version=4;S.stage=2;S.edit=S.savedEdit=0;
+    renderStudentScore({total:80,graded:1,maximum:100,stages:[{stage:2,version_id:'v',revision:1,status:'ready',total:80,maximum:100,items:[],history:[],feedback:{source:'ai',strengths:[{text:'阶段明确'}],improvements:[{text:'补充品质证据'}]}}]});`);
+  assert.equal(h.el('#scoreBubblePoints').textContent,'80 / 100');
+  assert.match(h.el('#studentScore').innerHTML,/补充品质证据/);
 });

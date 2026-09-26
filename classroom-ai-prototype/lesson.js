@@ -89,7 +89,7 @@ async function loadLessons(preferred) {
   lessonOptions(); show('#emptyState',!S.lesson); show('#lessonSurface',!!S.lesson);
   if(!S.lesson) {
     $('#stageNav').innerHTML='';
-    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>突变体为什么不能明显向光弯曲？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="生长素探究课"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
+    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>怎样用植物激素优化葡萄的产量与品质？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="植物激素与葡萄增产"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
     return;
   }
   S.lastTeacherStage=S.lesson.stage;
@@ -122,6 +122,9 @@ async function loadStage(stage) {
 function renderFrame() {
   const {content,stages}=S.content;
   $('#questionTitle').textContent=content.question;
+  $('#teacherSummaryTitle').textContent=$('#summaryPresentationTitle').textContent=isGrape()?'增产方案问题智能汇总':'实验设计问题智能汇总';
+  $('#chatSubmit').textContent=isGrape()?(S.stage===1?'获取百粒质量':'提交方案并评分'):'提交本组成果';
+  $('#chatInput').placeholder=isGrape()&&S.stage===1?'索取激素案例，或输入各实验组的处理……':'指出你们最想讨论的一个问题……';
   show('#lessonReadOnly',S.lesson.status==='archived');
   $('#groupBadge').textContent=isTeacher()?'教师观察台':`第 ${S.user.groupId} 组`;
   $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes?`${s.minutes} 分钟`:'教师推进'}${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');
@@ -129,7 +132,7 @@ function renderFrame() {
   show('#lessonMaterials',!isTeacher());
   if(isTeacher()) {
     const live=S.lesson.status==='live';
-    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${S.lesson.flow_version!==3&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
+    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${!isInquiry()&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
   }
 }
 function materialHTML(m) {
@@ -156,15 +159,23 @@ function renderStudent() {
 function assignmentHTML(a) {
   return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(publicURL(a.image))}" target="_blank" rel="noopener"><img src="${esc(publicURL(a.image))}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
 }
-function isInquiry() { return S.lesson?.flow_version===3; }
+function isGrape() { return S.lesson?.flow_version===4; }
+function isInquiry() { return [3,4].includes(S.lesson?.flow_version); }
 function matchStatus(m) {
+  if(isGrape())return !m?'提交实验设计后获取百粒质量':({pending:'等待匹配百粒质量',processing:'正在识别各组处理',ready:`已返回 ${m.matches.length} 组百粒质量`,needs_clarification:'请补充关键处理',unmatched:'暂无对应课件数据',failed:'数据匹配暂未完成，可重试'}[m.status]||'正在同步');
   if(!m)return '提交简要思路后获取结果图';
   return {pending:'等待匹配结果图',processing:'正在匹配结果图',ready:`已匹配 ${m.matches.length} 张图`,needs_clarification:'请补充关键处理',unmatched:'暂无对应参考图',failed:'匹配暂未完成，可重试'}[m.status]||'正在同步';
 }
 function matchHTML(m,actions=true) {
+  if(isGrape())return grapeResultsHTML(m,actions);
   if(!m)return '<p class="notice">提交简要思路或任务单照片后，将在这里显示对应的实验结果参考图。本部分不计分。</p>';
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
   return `<section class="inquiry-results" aria-label="本次提交的实验结果参考图"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.map(item=>`<figure class="inquiry-result"><figcaption><span class="kind">教师提供的实验结果参考图</span><h3>${esc(item.label)}</h3><p>对应思路：${esc(item.excerpt)}</p></figcaption><a href="${esc(publicURL(item.image))}" target="_blank" rel="noopener"><img src="${esc(publicURL(item.image))}" alt="${esc(item.label)}的教师原图" loading="lazy"></a></figure>`).join('')}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应参考图：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
+}
+function grapeResultsHTML(m,actions=true) {
+  if(!m)return '<p class="notice">提交各组实验处理或任务单照片后，在此查看对应百粒质量。本环节不计分。</p>';
+  const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
+  return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.length?`<div class="mass-table-scroll"><table class="material-table mass-table"><caption>对应处理的百粒质量</caption><thead><tr><th scope="col">处理</th><th scope="col">百粒质量 / g</th></tr></thead><tbody>${m.matches.map(r=>`<tr><th scope="row">${esc(r.label)}</th><td><strong>${esc(r.mass)} ± ${esc(r.uncertainty)}</strong></td></tr>`).join('')}</tbody></table></div><p class="fine">来源：《植物激素》课件第4页。课件参考数据，非本组实测；不据此推算未提供条件的结果。</p><details><summary>查看处理匹配依据</summary>${m.matches.map(r=>`<p><strong>${esc(r.label)}：</strong>${esc(r.excerpt)}</p>`).join('')}</details>`:''}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
 function versionExtras(v) {
   if(!isInquiry())return '';
@@ -195,7 +206,7 @@ function renderExtras() {
   $('#workState').textContent=count?(w.work.revision>last.revision?'已修改，待提交':'已提交'):w.work.revision?'草稿未提交':'未开始';
   if(isModel()&&last?.fields.phase==='model')$('#workState').textContent='模型已提交，待讨论';
   show('#submitRow',true);
-  $('#submitButton').textContent=isInquiry()?(S.stage===1?'提交思路并获取结果图':'提交设计并评分'):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
+  $('#submitButton').textContent=isInquiry()?(isGrape()?(S.stage===1?'提交设计并获取实验结果':'提交增产方案并评分'):(S.stage===1?'提交思路并获取结果图':'提交设计并评分')):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
   $('#versionCount').textContent=count?`（${count} 次）`:'';
   if(isInquiry()&&S.stage===1)renderChat();
   if(typeof renderModel==='function')renderModel();
@@ -416,11 +427,11 @@ function eventDescription(e) {
 }
 function treatmentLabel(t) { return {bean_shading:'菜豆遮光实验预期结果',remove_tip:'去除顶端',tip_shade:'顶端遮光',lower_shade:'下部遮光',marking:'分段标记观察',custom:'自定义'}[t]||t; }
 async function control(body) { await api(base(),{method:'PATCH',body}); await loadLessons(S.lesson.id); await refreshEvents(); }
-async function createLesson() { const title=$('#newLessonTitle')?.value||'生长素探究课 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
+async function createLesson() { const title=$('#newLessonTitle')?.value||'植物激素与葡萄增产 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
 function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
 function chatsHTML(chats,versions=[],files=[]) {
   const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(c.answer)}</p></div>`}));
-  versions.forEach((v,i)=>entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次实验思路</div><p>${esc(v.fields.design||'请查看本次提交的实验思路照片。')}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次实验结果</div>${v.result_match?matchHTML(v.result_match):'<p class="muted">已收到本次思路，正在准备对应的结果图…</p>'}</div></div>`}));
+  versions.forEach((v,i)=>entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次实验思路</div><p>${esc(v.fields.design||'请查看本次提交的实验思路照片。')}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次实验结果</div>${v.result_match?matchHTML(v.result_match):`<p class="muted">已收到本次思路，正在准备对应的${isGrape()?'百粒质量':'结果图'}…</p>`}</div></div>`}));
   return entries.sort((a,b)=>a.time-b.time).map(entry=>entry.html).join('');
 }
 function renderChat() {
@@ -479,7 +490,7 @@ async function uploadFiles(files,{submitToAI=false}={}) {
     if(autoSubmit){
       const submitted=await saveWork(true);
       if(seq===S.seq){
-        if(submitted)toast(S.stage===1?'照片已自动提交给 AI，匹配完成后会在对话中显示结果图。':'照片已自动提交给 AI，评价完成后会显示本次方案反馈。');
+        if(submitted)toast(S.stage===1?(isGrape()?'照片已自动提交给 AI，识别完成后会显示对应百粒质量。':'照片已自动提交给 AI，匹配完成后会在对话中显示结果图。'):'照片已自动提交给 AI，评价完成后会显示本次方案反馈。');
         else toast('照片已上传并保留，自动提交尚未成功。请点击提交按钮重试，无需重拍或再次上传。');
       }
       // The photo is already stored. Close the camera even if submission needs

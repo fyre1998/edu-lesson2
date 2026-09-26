@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, Session
 
 from . import lesson_v2 as v2
 from . import lesson_v3 as v3
+from . import lesson_grape as grape
 from .ai_schemas import EXTRACTION_SCHEMA, grading_schema
 from .student_feedback import student_feedback
 
@@ -170,14 +171,14 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
         return [dict(id=e.id,revision=e.revision,file_ids=json.loads(e.file_ids),data=json.loads(e.data),created=e.created) for e in session.scalars(select(Extraction).where(Extraction.lesson_id==lesson_id,Extraction.group_id==group_id).order_by(Extraction.created))]
 
     def queue_score(session, version, background, flow_version=2):
-        curriculum = v3 if flow_version == 3 else v2
-        chats=[] if flow_version == 3 else chat_rows(session,version.lesson_id,version.group_id,version.stage)
+        curriculum = {2: v2, 3: v3, 4: grape}[flow_version]
+        chats=[] if flow_version in (3, 4) else chat_rows(session,version.lesson_id,version.group_id,version.stage)
         # Only student utterances are evidence; no assistant text in grading input.
         payload=dict(fields=json.loads(version.data),file_ids=json.loads(version.file_ids),
             student_messages=[dict(id=c.id,text=c.question) for c in chats],
             assignment=assigned(session,version.lesson_id,version.group_id,None),
             rubric_snapshot=curriculum.grading_rubric(version.stage), flow_version=flow_version,
-            unanswered=[] if flow_version == 3 else sorted(v2.unanswered_items(version.stage,json.loads(version.data),json.loads(version.file_ids))))
+            unanswered=[] if flow_version in (3, 4) else sorted(v2.unanswered_items(version.stage,json.loads(version.data),json.loads(version.file_ids))))
         session.add(Assessment(version_id=version.id,rubric_version=curriculum.RUBRIC_VERSION,payload=json.dumps(payload,ensure_ascii=False)))
         background.add_task(run_score,session.get_bind(),version.id)
 
@@ -203,8 +204,9 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
                 if not a or a.status=='ready': return
                 a.status='processing';a.updated=int(time.time());s.commit()
                 payload=json.loads(a.payload)
-                is_v3 = payload.get('flow_version') == 3
-                is_mutant = is_v3 and a.rubric_version == v3.RUBRIC_VERSION
+                is_grape = payload.get('flow_version') == 4
+                is_v3 = payload.get('flow_version') in (3, 4)
+                is_mutant = not is_grape and is_v3 and a.rubric_version == v3.RUBRIC_VERSION
                 # Retries use the rubric frozen at submission, even after configuration updates.
                 rubric=payload.pop('rubric_snapshot',None) or (v2.RUBRIC[v.stage] if a.rubric_version=='auxin-4x8-1' else v2.grading_rubric(v.stage))
                 unanswered=set(payload.pop('unanswered',[]))
@@ -230,16 +232,16 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
 学生反馈不得包含教师完整量规、标准答案、其他项目的扣分清单或后续环节知识；不要把每个reason复制给学生。每条最多240字，关联对应项目key。修改建议不直接代写实验或替学生给出结论。
 返回纯JSON {"items":[{"key":"项目key","points":0,"missing":true,"evidence":[],"reason":"教师依据"}],"feedback":{"strengths":[{"key":"项目key","text":"学生已有优点"}],"improvements":[{"key":"项目key","text":"一个修改动作"}]} }，items项目必须与量规完全一致。量规：'''+json.dumps(rubric,ensure_ascii=False)
                     if is_v3:
-                        system = system.rsplit('量规：', 1)[0] + (v3.SCORING_RULES if is_mutant else v3.LEGACY_SCORING_RULES) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
+                        system = system.rsplit('量规：', 1)[0] + (grape.SCORING_RULES if is_grape else v3.SCORING_RULES if is_mutant else v3.LEGACY_SCORING_RULES) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
                     allowed={'field:'+k for k in payload['fields']}|{'chat:'+str(c['id']) for c in payload['student_messages']}|{'file:'+fid for fid in ids}
-                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=(v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed))
+                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=(grape.score_schema if is_grape else v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed))
                     result=v2.parse_json(raw);items=result['items']
                     if len(items)!=len(rubric) or {i['key'] for i in items}!={r[0] for r in rubric}: raise ValueError()
                     if is_v3:
                         if type(result['readable']) is not bool or not isinstance(result['clarification'], str) or len(result['clarification']) > 240:
                             raise ValueError()
                         components = result['treatment_parts']
-                        limits = v3.PART_LIMITS if is_mutant else {'removed_tip': 10, 'decapitated_seedling': 10, 'lateral_placement': 20}
+                        limits = grape.PART_LIMITS if is_grape else v3.PART_LIMITS if is_mutant else {'removed_tip': 10, 'decapitated_seedling': 10, 'lateral_placement': 20}
                         if not isinstance(components, dict) or set(components) != set(limits) or any(type(components[k]) is not int or not 0 <= components[k] <= cap for k, cap in limits.items()):
                             raise ValueError()
                         next(i for i in items if i['key'] == 'treatment')['points'] = sum(components.values())
@@ -265,8 +267,8 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                     a.status='failed';a.error='评分暂未完成，可重试或由教师评分';a.updated=int(time.time());s.commit()
 
     def scores(session,lesson,group,user):
-        if config(lesson)[0] not in (2, 3): return None
-        curriculum = v3 if config(lesson)[0] == 3 else v2
+        if config(lesson)[0] not in (2, 3, 4): return None
+        curriculum = {2: v2, 3: v3, 4: grape}[config(lesson)[0]]
         result=[]
         for stage,rubric in curriculum.RUBRIC.items():
             versions = session.execute(select(Version, Assessment).outerjoin(
@@ -323,9 +325,10 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
 
     def version_score(session, version, user):
         lesson = session.get(Lesson, version.lesson_id)
-        if config(lesson)[0] != 3 or version.stage != 2:
+        if config(lesson)[0] not in (3, 4) or version.stage != 2:
             return None
-        return score_entry(session, version, 2, v3.RUBRIC[2], v3, user)
+        curriculum = grape if config(lesson)[0] == 4 else v3
+        return score_entry(session, version, 2, curriculum.RUBRIC[2], curriculum, user)
 
     @router.post('/lessons/{lesson_id}/assessments/{version_id}/retry')
     def retry(lesson_id:str,version_id:str,background:BackgroundTasks,user=Depends(identity),session=Depends(db)):
@@ -333,7 +336,7 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
         a=session.get(Assessment,version_id);v=session.get(Version,version_id)
         if not a or not v or v.lesson_id!=lesson_id: raise HTTPException(404,'评分不存在')
         if user.role != 'teacher':
-            if config(lesson)[0] != 3: teacher(user)
+            if config(lesson)[0] not in (3, 4): teacher(user)
             check_group(user, v.group_id)
         if a.status == 'needs_clarification':
             raise HTTPException(409, '请补充可辨认的设计后重新提交')
@@ -358,6 +361,9 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
     @router.get('/lessons/{lesson_id}/teaching-guide')
     def teaching_guide(lesson_id:str,user=Depends(identity),session=Depends(db)):
         teacher(user);lesson=get_lesson(session,lesson_id)
+        if config(lesson)[0] == 4:
+            return dict(prompts={k:grape.guide(k) for k in grape.STAGES}, rubric=grape.RUBRIC,
+                        version=grape.RUBRIC_VERSION, matching=grape.RESULTS)
         if config(lesson)[0] == 3:
             return dict(prompts={k:v3.guide(k) for k in v3.STAGES}, rubric={k:v3.grading_rubric(k) for k in v3.RUBRIC},
                         version=v3.RUBRIC_VERSION, matching={k: value[0] for k,value in v3.RESULTS.items()})

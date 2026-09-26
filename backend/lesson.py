@@ -19,6 +19,7 @@ from .lesson_content import TITLE, STAGES, MATERIALS, TREATMENTS, stage_content,
 from .lesson_diagrams import result_svg
 from . import lesson_v2 as v2
 from . import lesson_v3 as v3
+from . import lesson_grape as grape
 from . import lesson_expected_results as expected
 
 ASSETS = Path(__file__).parent / 'lesson_assets'
@@ -26,8 +27,8 @@ WRITE_LOCK = threading.RLock()  # Deployment intentionally uses one application 
 
 
 class NewLesson(BaseModel):
-    title: str = Field(default='生长素探究课', min_length=1, max_length=80)
-    flow_version: Literal[1, 2, 3] = 3
+    title: str = Field(default='植物激素与葡萄增产', min_length=1, max_length=80)
+    flow_version: Literal[1, 2, 3, 4] = 4
 
 
 class Control(BaseModel):
@@ -74,16 +75,16 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         return (d.flow_version, d.group_count) if d else (1, 6)
 
     def stages_for(lesson):
-        return {1: STAGES, 2: v2.STAGES, 3: v3.STAGES}[config(lesson)[0]]
+        return {1: STAGES, 2: v2.STAGES, 3: v3.STAGES, 4: grape.STAGES}[config(lesson)[0]]
 
     def assignment_stage(lesson):
-        if config(lesson)[0] == 3:
+        if config(lesson)[0] in (3, 4):
             return None
         return 1 if config(lesson)[0] == 2 else 2
 
     def visible_materials(lesson, stage):
-        if config(lesson)[0] == 3:
-            return v3.materials(stage, lesson.unlocked)
+        if config(lesson)[0] in (3, 4):
+            return (grape if config(lesson)[0] == 4 else v3).materials(stage, lesson.unlocked)
         return v2.materials(stage, lesson.unlocked) if config(lesson)[0] == 2 else available_materials(stage, lesson.unlocked, bool(lesson.reveal_research))
 
     def group_exists(lesson, group_id):
@@ -198,7 +199,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             Version.group_id == group_id, Version.stage == stage).order_by(Version.revision)).all()
 
     def assignment_record(session, lesson, group_id):
-        if config(lesson)[0] == 3:
+        if config(lesson)[0] in (3, 4):
             return None
         if config(lesson)[0] == 2:
             item = session.get(ExpectedResult, (lesson.id, group_id))
@@ -251,7 +252,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
                          dict(treatment=expected.TREATMENT, variant=variant, version_id=item.version_id), group)
 
     def assign_pending(session, lesson, user):
-        if config(lesson)[0] == 3 or not lesson.release_results:
+        if config(lesson)[0] in (3, 4) or not lesson.release_results:
             return
         if config(lesson)[0] == 2:
             distribute_expected_results(session, lesson, user)
@@ -301,9 +302,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         with WRITE_LOCK:
             if session.scalar(select(Lesson).where(Lesson.status == 'live')):
                 raise HTTPException(409, '请先归档当前课次，再开始新课')
-            lesson = Lesson(id=secrets.token_hex(12), title=body.title.strip() or '生长素探究课')
+            lesson = Lesson(id=secrets.token_hex(12), title=body.title.strip() or ('植物激素与葡萄增产' if body.flow_version == 4 else '生长素探究课'))
             session.add(lesson); session.flush()
-            if body.flow_version in (2, 3):
+            if body.flow_version in (2, 3, 4):
                 session.add(Definition(lesson_id=lesson.id, flow_version=body.flow_version, group_count=8)); session.flush()
             record_event(session, lesson.id, user, 'create', dict(title=lesson.title))
             session.commit()
@@ -314,8 +315,8 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         teacher(user)
         with WRITE_LOCK:
             lesson = get_lesson(session, lesson_id, write=True)
-            if config(lesson)[0] == 3 and (body.release_results is not None or body.reveal_research is not None):
-                raise HTTPException(422, '两环节课堂按提交匹配图片，不使用旧版结果分发或历史结果开放')
+            if config(lesson)[0] in (3, 4) and (body.release_results is not None or body.reveal_research is not None):
+                raise HTTPException(422, '两环节课堂按提交匹配结果，不使用旧版结果分发或历史结果开放')
             if body.stage is not None:
                 if body.stage not in stages_for(lesson):
                     raise HTTPException(422, '该教学版本没有此环节')
@@ -346,9 +347,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     def get_stage(lesson_id: str, stage: int, user=Depends(identity), session=Depends(db)):
         lesson = get_lesson(session, lesson_id, stage)
         if user.role != 'teacher': group_exists(lesson, user.group_id)
-        return dict(lesson=public_lesson(lesson), stage=stage, title=v3.mutant.TITLE if config(lesson)[0] == 3 else TITLE, content=deepcopy(stages_for(lesson)[stage]),
+        return dict(lesson=public_lesson(lesson), stage=stage, title=grape.TITLE if config(lesson)[0] == 4 else v3.mutant.TITLE if config(lesson)[0] == 3 else TITLE, content=deepcopy(stages_for(lesson)[stage]),
                     stages=[dict(id=n, title=s['title'], minutes=s['minutes'], open=n <= lesson.unlocked) for n, s in stages_for(lesson).items()],
-                    materials=materials(lesson, stage), opener=({2: v2, 3: v3}[config(lesson)[0]].OPENERS.get(stage) if config(lesson)[0] in (2, 3) else None),
+                    materials=materials(lesson, stage), opener=({2: v2, 3: v3, 4: grape}[config(lesson)[0]].OPENERS.get(stage) if config(lesson)[0] in (2, 3, 4) else None),
                     scientists=v2.SCIENTISTS if stage == 4 and config(lesson)[0] == 2 else {},
                     targets=v2.TARGETS if stage == 4 and config(lesson)[0] == 2 else {})
 
@@ -384,9 +385,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             f = session.get(File, fid); ctx = session.get(FileContext, fid)
             if not f or f.group_id != group_id or not ctx or ctx.lesson_id != lesson_id or ctx.stage != stage:
                 raise HTTPException(404, '附件不属于本组当前环节')
-            if config(lesson)[0] == 3 and not f.preview_type:
+            if config(lesson)[0] in (3, 4) and not f.preview_type:
                 raise HTTPException(422, '本课提交支持文字和 PNG/JPG/WebP 图片，请将文档内容填写或拍照后提交')
-        if config(lesson)[0] == 3:
+        if config(lesson)[0] in (3, 4):
             if len(body.file_ids) > 8 or sum(session.get(File, fid).size for fid in body.file_ids) > 20 * 1024 * 1024:
                 raise HTTPException(413, '一次提交最多8张图片，总大小不能超过20 MB')
             if submit and not body.fields.get('design', '').strip() and not body.file_ids:
@@ -447,11 +448,11 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
                 assign_pending(session, lesson, user)
                 if config(lesson)[0] == 2 and not (stage == 4 and body.fields.get('phase') == 'model'):
                     extensions.queue_score(session, version, background)
-                elif config(lesson)[0] == 3:
+                elif config(lesson)[0] in (3, 4):
                     if stage == 1:
                         matching.queue(session, version, background)
                     else:
-                        extensions.queue_score(session, version, background, flow_version=3)
+                        extensions.queue_score(session, version, background, flow_version=config(lesson)[0])
                 record_event(session, lesson.id, user, 'submit', dict(stage=stage, version_id=version_id), user.group_id)
             session.commit()
             return dict(**work_dict(record), submission_id=version_id)
@@ -469,7 +470,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         teacher(user)
         with WRITE_LOCK:
             lesson = get_lesson(session, lesson_id, write=True)
-            if config(lesson)[0] == 3:
+            if config(lesson)[0] in (3, 4):
                 raise HTTPException(422, '本课按每次提交匹配结果，不使用旧版图组分配')
             group_exists(lesson, body.group_id)
             if not lesson.release_results:
@@ -535,7 +536,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     @router.get('/lessons/{lesson_id}/scenarios/{treatment}')
     def scenario_choices(lesson_id: str, treatment: str, user=Depends(identity), session=Depends(db)):
         teacher(user); lesson = get_lesson(session, lesson_id)
-        if config(lesson)[0] == 3:
+        if config(lesson)[0] in (3, 4):
             raise HTTPException(404, '本课没有旧版假设图组')
         if config(lesson)[0] == 2:
             if treatment != expected.TREATMENT:
@@ -622,8 +623,12 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
                  '对菜豆的结论要考虑顶芽、幼叶等材料差异。黑暗中弯曲不直接证明所有条件下物质产生都不需要光。')
         if config(lesson)[0] == 2:
             rules = v2.guide(stage) + extensions.guidance_context(session, lesson_id, group_id, stage)
-        elif config(lesson)[0] == 3:
-            rules = v3.guide(stage) + extensions.guidance_context(session, lesson_id, group_id, stage)
+        elif config(lesson)[0] in (3, 4):
+            rules = (grape if config(lesson)[0] == 4 else v3).guide(stage)
+            if config(lesson)[0] == 4 and stage == 1:
+                rules += grape.CHAT_RULES
+            else:
+                rules += extensions.guidance_context(session, lesson_id, group_id, stage)
             submitted = versions(session, lesson_id, group_id, 1)
             if submitted:
                 matches = [match for version in submitted if (match := matching.read(session, version))]
@@ -639,7 +644,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         return rules
 
     def guard_answer(answer, lesson, stage):
-        if config(lesson)[0] == 3:
+        if config(lesson)[0] in (3, 4):
             if re.search(r'标准答案|答案是|应该填|应填|正确连线', answer):
                 return '请先说出你们自己的判断，并指出支持它的一个操作或观察。'
             return answer

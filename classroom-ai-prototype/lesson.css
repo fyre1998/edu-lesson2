@@ -231,3 +231,5 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 @media(max-width:580px){.presentation-surface{flex:none}.presentation-surface:fullscreen{overflow:auto;padding:16px}.summary-presentation-dialog .presentation-surface{flex:1}.comparison-chat .chat-entry{padding:12px}.comparison-chat .chat-entry.student{margin-left:12px}.comparison-chat .chat-entry:not(.student){margin-right:12px}}
 
 #teacherSummaryBody{max-height:560px;overflow-y:auto;padding-right:8px}
+
+.mass-table-scroll{overflow-x:auto;margin:16px 0}.mass-table{width:100%;font-size:15px}.mass-table caption{text-align:left;font-weight:700;margin-bottom:10px}.mass-table th,.mass-table td{padding:12px 10px;text-align:left}.mass-table td strong{white-space:nowrap}

@@ -26,6 +26,7 @@ EXTENSIONS = {'.pdf', '.doc', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '
 MAX_AI_IMAGES = 4
 MAX_AI_IMAGE_BYTES = 20 * 1024 * 1024
 CLASSROOM_AI_HOURLY_LIMIT = 120
+SESSION_COOKIE = 'lesson2_classroom_session'
 
 
 class ClassroomLogin(BaseModel):
@@ -84,7 +85,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
     chat_running = set()
 
     def identity(request: Request, session=Depends(db)):
-        record = session.get(ClassroomSession, digest(request.cookies.get('classroom_session', '')))
+        record = session.get(ClassroomSession, digest(request.cookies.get(SESSION_COOKIE, '')))
         if not record or record.expires <= time.time():
             raise HTTPException(401, '请先登录课堂')
         if record.role == 'teacher' and record.name == '沈老师':
@@ -113,7 +114,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
     @router.post('/login')
     def login(body: ClassroomLogin, request: Request, response: Response, session=Depends(db)):
         rate_limit(('classroom-login', request.client.host), 30, 900)
-        if not hmac.compare_digest(body.code.encode(), os.getenv('CLASSROOM_CODE', 'BIO-302').encode()):
+        if not hmac.compare_digest(body.code.encode(), os.getenv('CLASSROOM_CODE', 'BIO-LESSON2').encode()):
             raise HTTPException(401, '课堂邀请码不正确')
         if body.role == 'teacher':
             password = os.getenv('CLASSROOM_TEACHER_PASSWORD', '')
@@ -123,7 +124,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
                 raise HTTPException(401, '教师账号或访问密码不正确')
         elif not body.groupId or (body.name and body.name != f'第 {body.groupId} 组' and (body.groupId>len(ROSTER) or body.name not in ROSTER[body.groupId - 1])):
             raise HTTPException(401, '学生姓名与小组不匹配')
-        session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get('classroom_session', ''))))
+        session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
         session.execute(delete(ClassroomSession).where(ClassroomSession.expires <= int(time.time())))
         token = secrets.token_urlsafe(32)
         user = ClassroomSession(token=digest(token), role=body.role, name=body.name if body.role=='teacher' or body.name else f'第 {body.groupId} 组',
@@ -131,7 +132,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
                                 expires=int(time.time()) + 43200)
         session.add(user)
         session.commit()
-        response.set_cookie('classroom_session', token, max_age=43200, httponly=True, secure=secure, samesite='strict', path='/')
+        response.set_cookie(SESSION_COOKIE, token, max_age=43200, httponly=True, secure=secure, samesite='strict', path='/')
         return public_identity(user)
 
     @router.get('/me')
@@ -140,9 +141,9 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads):
 
     @router.post('/logout')
     def logout(request: Request, response: Response, session=Depends(db)):
-        session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get('classroom_session', ''))))
+        session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
         session.commit()
-        response.delete_cookie('classroom_session', path='/')
+        response.delete_cookie(SESSION_COOKIE, path='/')
         return {'ok': True}
 
     @router.get('/groups')

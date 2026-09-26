@@ -1,118 +1,88 @@
-# 拾页 · 个人工作台
+# 知伴课堂 · 第二节课
 
-一个先在本地开发、后续可部署到 VPS 的 Web 应用基础版。前端采用原生 HTML / CSS / JavaScript，后端使用 FastAPI，前后端通过真实接口连接。当前功能规模无需前端构建工具；以后可以保留这些接口并替换为 React 或 Vue。
+第二节课的独立开发项目，复用第一课的 FastAPI 后端和 HTML / CSS / JavaScript 前端。项目隔离已完成；当前教学内容仍为第一课的生长素探究，待第二课教学方案确定后替换。
 
-## 已有功能
+## 项目与发布目标
 
-- 知伴课堂位于 `/classroom/`：新课采用两环节、八个小组。第一部分提交简要思路后自动匹配教师原图，不计分；第二部分借鉴温特方法设计水稻突变体检验实验，提交不同结果的判断，接受AI评价后修订；教师端自动归纳各组最新方案的问题。拍照、语音、历史版本和双组投屏保留；旧四环节、五环节课次按原定义读取。配置和操作见 [课堂使用说明](classroom-ai-prototype/README.md)。
+| 项目 | 第二课配置 |
+|---|---|
+| 本地目录 | `D:\codex project\lesson2_edu` |
+| GitHub 私有仓库 | [fyre1998/edu-lesson2](https://github.com/fyre1998/edu-lesson2) |
+| 本地课堂 | <http://127.0.0.1:8015/classroom/> |
+| 本地数据 | `data/lesson2/app.db` 与 `data/lesson2/uploads/` |
+| Compose 项目名 | `edu-lesson2` |
+| 线上入口 | `https://lesson2.lsclass.top/classroom/`，需 DNS 解析生效 |
+| 服务器目录 | `/opt/edu-lesson2` |
+| 专用上线命令 | `/usr/local/sbin/edu-lesson2-deploy` |
 
-- 注册、登录、退出；密码经过 scrypt 哈希；登录状态使用 HttpOnly Cookie，数据库仅保存令牌哈希，7 天失效。
-- 每个账号独立的笔记：新建、编辑、保存、删除，刷新与重新登录后保留。
-- 文件上传、列表、下载、删除；每个文件最多 10 MB，每个账号最多 100 个。下载必须登录且属于当前账号。
-- AI 文本对话及历史记录；调用发生在后端，密钥不发到浏览器。使用兼容 Chat Completions 的服务接口，带最近 5 轮上下文。
-- 同源请求校验、基本请求频率限制、内容安全策略；所有用户文本以纯文本显示。
-- 中文自适应界面，空状态、错误反馈和未保存笔记提醒。
+源代码继承自第一课 `fyre1998/edu` 的提交 `4f4d1b11468759a8d3d185f574e3099f594cc02d`。本项目的 `origin` 为第二课仓库，原项目目录与第一课仓库配置保持不变。
 
-本地默认使用 SQLite，不需要先安装数据库。Docker Compose 版本使用 PostgreSQL，保留数据库与上传文件的独立持久化卷。
+## 启动本地课堂
 
-## Windows 本地启动
+在当前电脑双击根目录的 `启动本地课堂.cmd`。程序在后台运行，确认项目身份后自动打开第二课网页；再次双击会复用当前第二课服务。
 
-需要 Python 3.12 或更新版本。在本目录打开 PowerShell：
+- 课堂邀请码：`BIO-LESSON2`。
+- 教师姓名：赵老师或王老师。
+- 本机已设置独立教师密码，见 `.local/lesson2-access.txt`；该文件与 `.env` 均不进入 Git。
+- 第一次打开没有课次，教师登录后创建新课。当前仍使用继承的两环节、八组教学模板。
+
+需要在终端运行并用 Ctrl+C 停止时：
 
 ```powershell
 .\start.ps1
 ```
 
-也可以指定 Python：
+`start.ps1` 会安装依赖并使用同一启动器；如需指定 Python 3.12+，传入 `-Python 'C:\path\to\python.exe'`。新电脑首次复制 `.env.example` 为 `.env` 后，应设置 `CLASSROOM_TEACHER_PASSWORD`；AI、语音服务沿用配置中的服务端密钥。
+
+其他平台创建虚拟环境、安装 `requirements.txt`、准备 `.env` 后执行：
+
+```bash
+python scripts/start_classroom_preview.py --foreground
+```
+
+高级用法：启动器的 `--port` 参数与 PowerShell 的 `-Port` 参数可指定其他端口。默认 8015 使用 `data/lesson2/`，其他端口使用 `data/lesson2-端口号/`，不会读取复制的旧预览数据。不要直接双击 HTML 文件。
+
+## 数据与运行隔离
+
+- 第二课数据库、上传文件、启动日志和后台进程编号均在 `data/lesson2/`。
+- 复制来的 `data/app.db`、`data/uploads/` 和 `work/` 原样保留作参考；第二课启动入口不使用这些旧数据。
+- 工作台与课堂分别使用 `lesson2_session`、`lesson2_classroom_session` Cookie，避免同一浏览器同时打开两节课时互相覆盖登录。
+- 启动器核对健康接口中的应用标识与数据目录对应的实例标识；端口被第一课或其他服务占用时会报错。
+- 本地服务只监听 `127.0.0.1`。关闭网页不会删除数据，也不会停止后台服务。
+- `.local/lesson1-reference/` 保存随项目复制的第一课连接资料，仅留作参考，不应作为第二课发布目标。
+
+## 现有功能
+
+保留小组登录、拍照、语音输入、AI 对话、草稿与提交历史、AI 评价及历次分数、教师观察与并排投屏、问题汇总。原个人工作台在 `/`，支持账号、笔记、文件和文字对话。
+
+当前课程模板、材料权限及具体课堂操作见 [课堂使用说明](classroom-ai-prototype/README.md)。`outputs/` 内早于本次项目隔离的验收记录继承自第一课，不能作为第二课上线完成的依据。
+
+## 测试
 
 ```powershell
-.\start.ps1 -Python 'C:\path\to\python.exe'
+.venv\Scripts\python.exe -m pytest tests -q
+node --test classroom-ai-prototype/*.test.cjs
 ```
 
-脚本创建虚拟环境、安装依赖并启动服务。打开 <http://127.0.0.1:8000>，首次点击“创建账号”。没有预置账号或默认密码。保持启动窗口运行，按 Ctrl+C 停止。不要双击 index.html；页面需要连接后端。
+自动测试使用临时数据库和模拟 AI，不调用付费模型。项目隔离测试覆盖两课登录 Cookie 互不覆盖、错误服务占用端口时拒绝启动，以及健康接口身份。
 
-手动启动 / macOS / Linux：
+## 第二课上线
+
+本地修改和测试后，提交并推送本仓库的 `main` 分支，再登录 VPS 执行：
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn backend.app:app --host 127.0.0.1 --port 8000
+/usr/local/sbin/edu-lesson2-deploy --check
+/usr/local/sbin/edu-lesson2-deploy
 ```
 
-本地数据保存在 `data/app.db` 和 `data/uploads/`。关闭网页不会删除这些数据。
+脚本固定使用 `/opt/edu-lesson2`、`fyre1998/edu-lesson2` 的 `main` 和 Compose 项目名 `edu-lesson2`，更新前检查工作区和发布目标，只允许快进更新。服务器独立的校验器还检查域名、数据卷、网络和端口，防止引用第一课数据。`--check` 只检查，不拉取、构建或重启。
 
-## 连接 AI
+第二课使用 `docker-compose.yml` 与 `deploy/compose.production.yml` 两份配置。仅运行 app/db，数据库卷为 `edu-lesson2_postgres`，上传卷为 `edu-lesson2_uploads`；不发布宿主机端口。app 通过 `edu_gateway` 网络上的唯一别名 `edu-lesson2-app` 接入共享 Caddy，db 只连接本课私有网络。继承的根目录 `Caddyfile` 不用于此部署。
 
-在项目根目录 `.env` 中设置 `AI_BASE_URL`（以 `/v1` 等服务要求的前缀结尾）、`AI_API_KEY` 和 `AI_MODEL`，然后重启服务。具体模型名与地址使用你的服务商提供的值。留空时其他功能照常运行，AI 返回待配置提示。无需把密钥发到聊天中。
+服务器共享入口配置由 `/etc/edu-gateway/Caddyfile` 与 `/etc/edu-gateway/lessons/` 管理，独立于两课代码仓库。`deploy/lesson2.caddy` 是第二课入口的配置模板。每次更新第二课不会重启或覆盖 Caddy，也不会更新第一课。第一课的原 `edu-deploy` 命令继续使用 `/opt/edu`，通过 `/etc/edu-deploy/lesson1.override.yml` 保留共享入口挂载。
 
-个人工作台的 AI 只接收主动发送的文字及该账号最近的对话上下文，不解析上传文件；每个账号最多 20 次 AI 请求 / 小时。知伴课堂 `/classroom/` 另支持发送选中的图片进行识图，具体限额与用法见课堂使用说明。
+已有第二课数据时，上线脚本会先短暂停止本课 app，备份数据库、上传文件、环境配置和代码版本，再启动旧服务并构建新版。备份位于 `/var/backups/edu-lesson2/`。构建失败时保留旧应用；新版启动失败会报错，需要按备份和记录的上一提交排查恢复，不会自动回退数据库。不要执行 `docker compose down -v`。
 
-## VPS 部署
+DNS 需新增 `lesson2` 的 A 记录，指向服务器 `212.50.233.200`。保留根域名与其他已有记录。解析生效后共享 Caddy 自动申请该子域名的 HTTPS 证书。
 
-准备已安装 Docker 与 Compose 的 Linux VPS，域名 A / AAAA 记录正确指向服务器，开放 80 和 443 端口。仅 Caddy 对公网暴露端口，数据库与后端留在容器网络中。
-
-1. 通过 Git 或其他方式将本目录放到 VPS。
-2. 复制 `.env.example` 为 `.env`。
-3. 设置 `DOMAIN` 为真实域名（不带 `https://`），`POSTGRES_PASSWORD` 为随机的十六进制长字符串，例如用 `openssl rand -hex 32` 在服务器生成。Compose 将密码放入数据库连接地址，因此不要使用含 URL 保留字符的密码。
-4. 按需设置 AI 配置与 `ALLOW_REGISTRATION`。创建所需账号后，可以设置 `ALLOW_REGISTRATION=false` 并重新创建 app 容器以关闭注册。
-5. 启动：
-
-```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs --tail=100 app
-```
-
-Caddy 根据域名申请 HTTPS 证书。Compose 自动将 `APP_ORIGIN` 设为该 HTTPS 域名，Cookie 自动启用 Secure。后续代码更新后执行 `docker compose up -d --build`。
-
-### 已配置的生产更新流程
-
-生产服务器的 `/opt/edu` 已跟踪私有仓库 `fyre1998/edu` 的 `main` 分支，并使用只读 Deploy Key 拉取代码。数据库、上传文件与 `.env` 不会进入 GitHub，也不会在更新时被覆盖。
-
-在 GitHub 的 `main` 更新后，登录 VPS 并执行：
-
-```bash
-/usr/local/sbin/edu-deploy
-```
-
-该命令只接受可快进的 Git 更新，重新构建应用容器并重启 Caddy 载入可能变更的配置。正常的开发顺序为：本地修改和测试 → 提交并推送到 GitHub `main` → 在 VPS 执行上述命令。
-
-本地 SQLite 数据不会自动迁移至 VPS 的 PostgreSQL。若要携带本地账号和记录，应在正式使用前另做迁移，不能简单复制 SQLite 文件到 PostgreSQL 卷中。
-
-## 备份与恢复
-
-数据库与文件必须成对备份，并妥善保管 `.env`。以下为 Linux VPS 的维护流程，短暂停止 app 以保持一致性；数据库保持运行。
-
-```bash
-mkdir -p backups
-docker compose stop app
-docker compose exec -T db pg_dump -U workbench -d workbench -Fc > backups/database.dump
-docker compose run --rm --no-deps --user root -v "$PWD/backups:/backup" app python -c "import tarfile; t=tarfile.open('/backup/uploads.tar.gz','w:gz'); t.add('/app/data/uploads',arcname='uploads'); t.close()"
-docker compose start app
-```
-
-每次备份使用不同目录或转存到另一台设备，避免覆盖唯一副本。恢复之前另存当前数据，在测试实例演练。恢复数据库时可用 `pg_restore` 导入；上传文件恢复至 app 的 `/app/data/uploads`，文件所有者需为 UID 10001。不要执行 `docker compose down -v`，它会删除持久化卷。
-
-## 测试与边界
-
-```bash
-pip install -r requirements-dev.txt
-python -m pytest tests -q
-```
-
-测试使用临时 SQLite 数据库，覆盖账号权限隔离、密码与会话、笔记持久化、文件下载与删除、上传限制、跨来源请求、AI 未配置与模拟服务、会话过期与频率限制。不会调用付费 AI。
-
-这是可继续开发的基础版，尚无管理员角色、找回密码、邮箱验证、团队共享、文件解析或后台任务。多人使用目前指多个独立账号，并非多人协同编辑；同一账号同时编辑同一篇笔记，后保存的版本会覆盖之前的版本。
-
-频率限制保存在单个服务进程内，重启会清空，Compose 固定一个 worker；反向代理下 IP 限制按代理 IP 共用。扩大部署前应接入共享限流存储、迁移工具和容量管理。数据库首次启动自动建表；后续结构变更需要编写迁移，`create_all` 不会升级现有表结构。
-
-上传目前校验后缀与大小，强制作为下载附件返回，不执行或在线渲染；未提供病毒扫描。本地仅监听回环地址。
-
-Docker 构建、PostgreSQL、HTTPS 与真实 AI 已在现有 VPS 验证。生长素课堂的本地及生产验收见 [验收记录](outputs/生长素课堂验收.md)；真实 40 分钟试教与现场负载仍需课堂验证。
-
-浏览器支持 WebMCP 时，页面提供只读的 `list_my_notes` 工具，沿用当前登录账号权限。当前环境未做 WebMCP 实际调用验收；普通页面功能不依赖该接口。
-
-实现参考：[FastAPI 文件上传](https://fastapi.tiangolo.com/tutorial/request-files/)、[SQLAlchemy 会话管理](https://docs.sqlalchemy.org/en/20/orm/session_basics.html)。
-
+服务器的 `.env` 与 `.local/production-access.txt` 不进入 Git。第二课不能使用第一课的 `/opt/edu` 目录或 `edu-deploy` 命令。

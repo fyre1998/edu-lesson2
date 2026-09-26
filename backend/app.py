@@ -20,12 +20,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker,
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / '.env')
-DATA = Path(os.getenv('DATA_DIR', str(ROOT / 'data'))).resolve()
+DATA = Path(os.getenv('DATA_DIR', str(ROOT / 'data' / 'lesson2')))
+DATA = (ROOT / DATA).resolve() if not DATA.is_absolute() else DATA.resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 UPLOADS = DATA / 'uploads'
 UPLOADS.mkdir(exist_ok=True)
 URL = os.getenv('DATABASE_URL', 'sqlite:///' + (DATA / 'app.db').as_posix())
-ORIGIN = os.getenv('APP_ORIGIN', 'http://127.0.0.1:8000').rstrip('/')
+ORIGIN = os.getenv('APP_ORIGIN', 'http://127.0.0.1:8015').rstrip('/')
+SESSION_COOKIE = 'lesson2_session'
 SECURE = ORIGIN.startswith('https://')
 MAX_FILE = 10 * 1024 * 1024
 engine = create_engine(URL, connect_args={'check_same_thread': False} if URL.startswith('sqlite') else {}, pool_pre_ping=True)
@@ -143,7 +145,7 @@ def digest(token):
 
 
 def current_user(request: Request, session: Session = Depends(db)):
-    login = session.get(LoginSession, digest(request.cookies.get('session', '')))
+    login = session.get(LoginSession, digest(request.cookies.get(SESSION_COOKIE, '')))
     if not login or login.expires <= time.time():
         raise HTTPException(401, '请先登录')
     return session.get(User, login.user_id)
@@ -161,14 +163,14 @@ class Credentials(BaseModel):
 
 
 def login_cookie(user, request, response, session):
-    previous = request.cookies.get('session')
+    previous = request.cookies.get(SESSION_COOKIE)
     if previous:
         session.execute(delete(LoginSession).where(LoginSession.token == digest(previous)))
     session.execute(delete(LoginSession).where(LoginSession.expires < int(time.time())))
     token = secrets.token_urlsafe(32)
     session.add(LoginSession(token=digest(token), user_id=user.id, expires=int(time.time()) + 604800))
     session.commit()
-    response.set_cookie('session', token, max_age=604800, httponly=True, secure=SECURE, samesite='strict', path='/')
+    response.set_cookie(SESSION_COOKIE, token, max_age=604800, httponly=True, secure=SECURE, samesite='strict', path='/')
     return {'id': user.id, 'username': user.username}
 
 
@@ -201,9 +203,9 @@ def login(body: Credentials, request: Request, response: Response, session: Sess
 
 @app.post('/api/logout')
 def logout(request: Request, response: Response, session: Session = Depends(db)):
-    session.execute(delete(LoginSession).where(LoginSession.token == digest(request.cookies.get('session', ''))))
+    session.execute(delete(LoginSession).where(LoginSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
     session.commit()
-    response.delete_cookie('session', path='/')
+    response.delete_cookie(SESSION_COOKIE, path='/')
     return {'ok': True}
 
 
@@ -381,7 +383,7 @@ async def ask(body: ChatInput, user=Depends(current_user), session: Session = De
 @app.get('/api/health')
 def health(session: Session = Depends(db)):
     session.execute(select(1))
-    return {'ok': True}
+    return {'ok': True, 'app': 'lesson2_edu', 'instance_id': os.getenv('APP_INSTANCE_ID', '')}
 
 
 from .classroom import build_router

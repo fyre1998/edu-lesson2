@@ -1,0 +1,16 @@
+lesson2.lsclass.top {
+    encode zstd gzip
+    @classroom_files path /api/classroom/files
+    handle @classroom_files {
+        request_body {
+            max_size 21MB
+        }
+        reverse_proxy edu-lesson2-app:8000
+    }
+    handle {
+        request_body {
+            max_size 11MB
+        }
+        reverse_proxy edu-lesson2-app:8000
+    }
+}

@@ -1,0 +1,4 @@
+deploy/edu-lesson2-deploy text eol=lf
+deploy/*.yml text eol=lf
+deploy/*.caddy text eol=lf
+deploy/*.py text eol=lf

@@ -1,4 +1,6 @@
-# 知伴课堂 · 生长素探究
+# 知伴课堂 · 第二节课开发底稿
+
+本项目已与第一课分开运行；下文描述的是继承的生长素教学模板，第二课教学内容尚待确定。
 
 访问 `/classroom/`，无需前端构建。原个人工作台 `/`、账号、资料和对话保留。新课次默认采用两环节、八组，教师手动推进；已有四环节八组、五环节六组课次按原定义打开。
 
@@ -27,13 +29,13 @@ AI 输入框按 Enter 发送，Shift+Enter 换行；中文输入法选字时不�
 
 两环节定义：`backend/lesson_v3.py`；突变体任务与评价：`backend/lesson_mutant.py`；教师汇总：`backend/lesson_summary.py`；匹配任务与图片权限：`backend/lesson_matching.py`。新增自动验收：`tests/test_lesson_v3.py`。正式更新仍按根目录部署说明进行，本地预览不会自动发布。
 
-双击根目录的“启动本地课堂.cmd”即可启动新版两环节预览，默认使用8014端口。也可执行以下命令（与旧8011四环节预览及正式数据分开）：
+双击根目录的“启动本地课堂.cmd”即可启动第二课，默认端口8015。也可在终端执行：
 
 ```powershell
-.venv\Scripts\python.exe scripts/start_classroom_preview.py --port 8014
+.venv\Scripts\python.exe scripts/start_classroom_preview.py
 ```
 
-访问 <http://127.0.0.1:8014/classroom/>，课堂邀请码 `BIO-PREVIEW`，教师密码 `preview-teacher-816`；该预览仅监听本机。数据位于 `work/classroom-preview-8014/`。8011保留的是旧四环节课次，旧课次按创建时的教学版本展示，不会随代码更新自动转成两环节。
+访问 <http://127.0.0.1:8015/classroom/>，课堂邀请码 `BIO-LESSON2`。独立教师密码见本机 `.local/lesson2-access.txt`，启动时从 `.env` 读取。数据位于 `data/lesson2/`，第一次使用需由教师创建新课。复制的 `work/classroom-preview-8014/` 等旧数据保留，但不会被本启动入口使用。程序只监听本机，并核对端口上的服务确属当前项目。
 
 ## 四环节旧课操作
 
@@ -76,7 +78,7 @@ STT_MODEL=openai/gpt-4o-mini-transcribe
 
 2026-09-16 本地实测原定模型被服务商返回 403。本机 `.env` 因此设为 `STT_MODEL=qwen/qwen3-asr-flash-2026-02-10`，同一 OpenRouter 入口下八组并发测试成功。示例文件仍保留计划中的默认值，部署前应检查所选模型可用性。[OpenRouter STT 文档](https://openrouter.ai/docs/guides/overview/multimodal/stt)、[Qwen 模型说明](https://openrouter.ai/qwen/qwen3-asr-flash-2026-02-10)。
 
-本机可用 `localhost`／`127.0.0.1`。其他电脑访问需受信任的 HTTPS；普通局域网 HTTP 地址通常不能申请麦克风。摄像头同样需要安全上下文。[浏览器麦克风要求](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)。生产部署沿用项目根目录 README 中的 GitHub → VPS 流程；公网 HTTPS 可供教室设备使用。
+本机可用 `localhost`／`127.0.0.1`。其他电脑访问需受信任的 HTTPS；普通局域网 HTTP 地址通常不能申请麦克风。摄像头同样需要安全上下文。[浏览器麦克风要求](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)。第二课的生产部署尚未配置，进度与后续步骤见项目根目录 README；正式课堂需验证公网 HTTPS 与教室设备。
 
 ## 保存、权限与兼容
 

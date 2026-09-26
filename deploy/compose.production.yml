@@ -1,0 +1,14 @@
+# Only the application joins the shared reverse-proxy network.
+# The database remains on the private network for this Compose project.
+services:
+  app:
+    networks:
+      default:
+      gateway:
+        aliases:
+          - edu-lesson2-app
+
+networks:
+  gateway:
+    external: true
+    name: edu_gateway

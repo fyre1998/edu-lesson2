@@ -35,9 +35,9 @@ def test_auth_persistence_logout(env):
     assert 'SameSite=strict' in response.headers['set-cookie']
     note = client.post('/api/notes', json={'title':'我的笔记','content':'持久化内容'}).json()
     assert client.put('/api/notes/' + str(note['id']), json={'title':'新标题','content':'新的内容'}).status_code == 200
-    cookie = client.cookies.get('session')
+    cookie = client.cookies.get('lesson2_session')
     assert client.post('/api/logout').status_code == 200
-    client.cookies.set('session', cookie)
+    client.cookies.set('lesson2_session', cookie)
     assert client.get('/api/me').status_code == 401
     client.cookies.clear()
     assert client.post('/api/login', json={'username':'alice','password':'wrong-password'}).status_code == 401
@@ -47,7 +47,7 @@ def test_auth_persistence_logout(env):
         account = db.get(module.User, 1)
         assert account.password != 'correct-password-123'
         session = db.query(module.LoginSession).first()
-        assert session.token != client.cookies.get('session')
+        assert session.token != client.cookies.get('lesson2_session')
 
 
 def test_user_isolation_and_file_roundtrip(env):
@@ -146,7 +146,7 @@ def test_expired_session(env):
     module, client = env
     register(client)
     with module.SessionLocal() as db:
-        token = db.get(module.LoginSession, module.digest(client.cookies.get('session')))
+        token = db.get(module.LoginSession, module.digest(client.cookies.get('lesson2_session')))
         token.expires = 1
         db.commit()
     assert client.get('/api/me').status_code == 401
@@ -185,9 +185,9 @@ def test_classroom_teacher_files_and_group_isolation(env, monkeypatch):
         assert data[0]['files'][0]['id'] == file['id']
         assert other.get(file_url).content == '真实实验数据'.encode()
         assert 'attachment' in other.get(file_url).headers['content-disposition']
-        token = other.cookies.get('classroom_session')
+        token = other.cookies.get('lesson2_classroom_session')
         assert other.post('/api/classroom/logout').status_code == 200
-        other.cookies.set('classroom_session', token)
+        other.cookies.set('lesson2_classroom_session', token)
         assert other.get(file_url).status_code == 401
     # A fresh login still sees files saved by the previous session.
     student.post('/api/classroom/logout')

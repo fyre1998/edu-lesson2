@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+exec 9>/run/lock/edu-lesson2-deploy.lock
+flock -n 9 || { echo 'Another lesson 2 deployment is running' >&2; exit 1; }
+
+cd /opt/edu-lesson2
+[[ "$(pwd -P)" == /opt/edu-lesson2 ]] || { echo 'Wrong deployment directory' >&2; exit 1; }
+[[ "$(git rev-parse --show-toplevel)" == /opt/edu-lesson2 ]] || exit 1
+[[ "$(git remote get-url origin)" == git@github.com:fyre1998/edu-lesson2.git ]] || {
+    echo 'Wrong GitHub repository; refusing deployment' >&2; exit 1;
+}
+[[ "$(git branch --show-current)" == main ]] || { echo 'Wrong branch' >&2; exit 1; }
+[[ -z "$(git status --porcelain)" ]] || { echo 'Checkout is not clean' >&2; exit 1; }
+compose=(docker compose --project-directory /opt/edu-lesson2 --env-file /opt/edu-lesson2/.env
+    -p edu-lesson2 -f /opt/edu-lesson2/docker-compose.yml
+    -f /opt/edu-lesson2/deploy/compose.production.yml)
+check_config() {
+    "${compose[@]}" config --format json | python3 /etc/edu-deploy/validate-lesson2.py
+}
+check_config
+if [[ "${1:-}" == --check ]]; then
+    echo 'Directory, repository, branch, and storage checks passed'
+    exit 0
+fi
+[[ $# == 0 ]] || { echo 'Usage: edu-lesson2-deploy [--check]' >&2; exit 1; }
+
+git fetch origin main
+git merge-base --is-ancestor HEAD origin/main || { echo 'Non-fast-forward update refused' >&2; exit 1; }
+previous_commit=$(git rev-parse HEAD)
+git merge --ff-only origin/main
+check_config
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+backup="/var/backups/edu-lesson2/$stamp"
+mkdir -p "$backup"
+printf '%s\n' "$previous_commit" > "$backup/previous-commit.txt"
+git rev-parse HEAD > "$backup/target-commit.txt"
+cp .env docker-compose.yml "$backup/"
+cp deploy/compose.production.yml "$backup/compose.production.yml"
+if [[ -n "$("${compose[@]}" ps -q db)" ]]; then
+    "${compose[@]}" stop app
+    trap '"${compose[@]}" start app >/dev/null 2>&1 || true' EXIT
+    "${compose[@]}" exec -T db pg_dump -U workbench -d workbench -Fc > "$backup/database.dump"
+    docker run --rm --user root -v edu-lesson2_uploads:/source:ro -v "$backup:/backup" \
+        --entrypoint python edu-lesson2-app -c \
+        'import tarfile; t=tarfile.open("/backup/uploads.tar.gz","w:gz"); t.add("/source",arcname="data"); t.close()'
+    "${compose[@]}" start app
+    trap - EXIT
+fi
+"${compose[@]}" build app > "$backup/build.log" 2>&1 || {
+    echo "Build failed; previous running application was retained. Log: $backup/build.log" >&2
+    exit 1
+}
+"${compose[@]}" up -d --wait --wait-timeout 180
+"${compose[@]}" exec -T app python -c \
+    'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/health")); assert d.get("ok") and d.get("app")=="lesson2_edu" and d.get("instance_id")=="lesson2-production"; print("Lesson 2 application identity verified")'
+"${compose[@]}" ps
+echo "Lesson 2 deployment complete; backup: $backup"

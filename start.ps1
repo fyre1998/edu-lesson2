@@ -1,4 +1,4 @@
-param([string]$Python = 'python')
+param([string]$Python = 'python', [ValidateRange(1024,65535)][int]$Port = 8015)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 if (!(Test-Path '.venv/Scripts/python.exe')) {
@@ -9,5 +9,5 @@ $runtime = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
 & $runtime -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 if (!(Test-Path '.env')) { Copy-Item '.env.example' '.env' }
-Write-Host 'Open http://127.0.0.1:8000 ; press Ctrl+C to stop.'
-& $runtime -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+& $runtime scripts/start_classroom_preview.py --port $Port --foreground
+exit $LASTEXITCODE

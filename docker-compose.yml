@@ -1,3 +1,5 @@
+name: edu-lesson2
+
 services:
   app:
     build: .
@@ -14,9 +16,10 @@ services:
       STT_BASE_URL: ${STT_BASE_URL:-}
       STT_API_KEY: ${STT_API_KEY:-}
       STT_MODEL: ${STT_MODEL:-openai/gpt-4o-mini-transcribe}
-      CLASSROOM_CODE: ${CLASSROOM_CODE:-BIO-302}
+      CLASSROOM_CODE: ${CLASSROOM_CODE:-BIO-LESSON2}
       CLASSROOM_TEACHER_PASSWORD: ${CLASSROOM_TEACHER_PASSWORD:-}
       DATA_DIR: /app/data
+      APP_INSTANCE_ID: lesson2-production
     volumes:
       - uploads:/app/data
     depends_on:
@@ -50,26 +53,6 @@ services:
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: '3'}
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      app:
-        condition: service_healthy
-    logging:
-      driver: json-file
-      options: {max-size: 10m, max-file: '3'}
 volumes:
   postgres:
   uploads:
-  caddy_data:
-  caddy_config:

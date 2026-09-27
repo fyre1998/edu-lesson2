@@ -29,6 +29,71 @@ def chat(c, lid, message, stage=1):
         message=message, request_id=str(uuid.uuid4())))
 
 
+@pytest.mark.parametrize('message,expected', [
+    ('仅加入CPPU', ['cppu']), ('只加 cppu', ['cppu']), ('单独施用氯吡脲', ['cppu']),
+    ('加入GA3', ['ga3']), ('用ＧＡ₃处理', ['ga3']), ('赤霉素处理', ['ga3']),
+    ('对照组加蒸馏水', ['water']), ('清水对照', ['water']),
+    ('同一组加入GA3和CPPU', ['combined']), ('同时用CPPU与GA3处理', ['combined']),
+    ('GA₃＋CPPU处理', ['combined']), ('赤霉素和氯吡脲联合处理', ['combined']),
+    ('两组分别用GA3和CPPU处理', ['ga3', 'cppu']),
+    ('A组：加入水；B组：加入GA3；C组：只用CPPU；D组：GA3+CPPU处理', ['water', 'ga3', 'cppu', 'combined']),
+    ('第一组加水\n第二组用GA₃\n第三组使用赤霉素', ['water', 'ga3']),
+])
+def test_explicit_treatment_lookup(message, expected):
+    result = grape.validate_matches(grape.direct_matches(message))
+    assert [r['result_id'] for r in result['matches']] == expected
+    assert all(r['excerpt'] for r in result['matches'])
+
+
+@pytest.mark.parametrize('message', [
+    '', 'CPPU', '有GA3、CPPU和水', '哪种效果好', '仅加入CPPU吗？', '不用CPPU',
+    '不加GA3，只加CPPU', '不加CPPU而加GA3', '再加入CPPU', '按上面的方案加入CPPU',
+    '苹果使用GA3', '用GA3和乙烯处理', '加入GA3并补充脱落酸', '施用细胞分裂素',
+    '加入CPPU，为什么果粒会变大？', '加入CPPU，请给我案例', '对照组不处理',
+    '加入GA3，其他组按照片处理', '使用GA3或CPPU', '加入GA30', '加入水+CPPU',
+    '加入GA3，加入CPPU', '同一组加GA3；同一组加CPPU', 'A组加GA3，A组加CPPU',
+])
+def test_lookup_defers_ambiguous_or_unsupported_messages(message):
+    assert grape.direct_matches(message) is None
+
+
+def test_explicit_chat_and_submission_skip_ai_preserve_history_and_deduplicate(env, monkeypatch):
+    module, c = env; lid = start(c, monkeypatch); student(c, 1)
+    def unexpected(_):
+        pytest.fail('Explicit treatment must not call the model')
+    calls = mock(module, monkeypatch, unexpected)
+    assert '225 ± 2.8 g' in chat(c, lid, '加入GA3').json()['answer']
+    body = dict(lesson_id=lid, stage=1, message='仅加入CPPU', request_id=str(uuid.uuid4()))
+    response = c.post('/api/classroom/chats', json=body)
+    assert response.status_code == 201, response.text
+    assert response.json()['answer'] == '对应处理的百粒质量：\nCPPU：300 ± 2.8 g'
+    assert c.post('/api/classroom/chats', json=body).json() == response.json()
+    history = c.get(f'/api/classroom/lessons/{lid}/groups?stage=1').json()[0]['chats']
+    assert len(history) == 2
+    assert history[-1]['answer'] == response.json()['answer']
+    result = submit(c, lid, 1, {'design': '对照组用水；实验组仅加入CPPU'})
+    assert result.status_code == 201, result.text
+    rows = work(c, lid)['result_match']['matches']
+    assert [(r['result_id'], r['mass']) for r in rows] == [('water', 170), ('cppu', 300)]
+    assert calls == []
+
+
+def test_photos_and_complex_treatments_still_use_ai(env, monkeypatch):
+    module, c = env; lid = start(c, monkeypatch); student(c, 1)
+    responses = [dict(**matching('cppu'), case_ids=[], text=''),
+                 dict(**matching(questions=['请说明葡萄各组如何处理']), case_ids=[], text=''),
+                 matching('cppu')]
+    calls = mock(module, monkeypatch, lambda _: responses.pop(0))
+    photo = c.post(f'/api/classroom/files?lesson_id={lid}&stage=1', files={
+        'file': ('实验.png', Path('backend/lesson_assets/cells.png').read_bytes(), 'image/png')}).json()['id']
+    answer = c.post('/api/classroom/chats', json=dict(lesson_id=lid, stage=1,
+        message='仅加入CPPU', image_ids=[photo], request_id=str(uuid.uuid4())))
+    assert answer.status_code == 201 and len(calls) == 1
+    assert chat(c, lid, '苹果使用GA3').status_code == 201 and len(calls) == 2
+    assert submit(c, lid, 1, {'design': '仅加入CPPU'}, files=[photo]).status_code == 201
+    assert len(calls) == 3
+
+
 def scoring(readable=True, evidence='field:design', points=(10, 15, 15), control=20):
     return dict(readable=readable, clarification='' if readable else '照片中手写内容不清，请补拍。',
         treatment_parts=dict(zip(grape.PART_LIMITS, points)),

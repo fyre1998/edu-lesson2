@@ -1,5 +1,8 @@
+import asyncio
 import hashlib
 import hmac
+import json
+import logging
 import os
 import secrets
 import time
@@ -32,6 +35,8 @@ BASE_PATH = os.getenv('APP_BASE_PATH', '').rstrip('/')
 COOKIE_PATH = BASE_PATH or '/'
 SECURE = ORIGIN.startswith('https://')
 MAX_FILE = 10 * 1024 * 1024
+AI_REQUEST_TIMEOUT_SECONDS = 120
+ai_logger = logging.getLogger('uvicorn.error')
 engine = create_engine(URL, connect_args={'check_same_thread': False} if URL.startswith('sqlite') else {}, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
@@ -335,28 +340,65 @@ async def call_ai(messages, *, json_output=False, response_schema=None):
             'name': 'classroom_response', 'strict': True, 'schema': response_schema}}
         if httpx.URL(base_url).host == 'openrouter.ai':
             payload['provider'] = {'require_parameters': True}
+    started = time.monotonic()
+    diagnostic = {'requested_model': model, 'max_tokens': max_tokens, 'reasoning_effort': effort or 'default',
+                  'format': payload.get('response_format', {}).get('type', 'text'), 'outcome': 'error'}
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            upstream = await client.post(base_url + '/chat/completions',
-                headers={'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
-                json=payload)
-            upstream.raise_for_status()
-            choice = upstream.json()['choices'][0]
-            if choice.get('finish_reason') == 'length':
-                raise HTTPException(502, 'AI 回复未完整生成，请重试或联系教师调整输出额度')
-            answer = choice['message']['content']
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError('empty answer')
-            return answer
+        # httpx read timeout resets on every chunk; enforce a total deadline too.
+        async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
+            async with httpx.AsyncClient(timeout=120) as client:
+                upstream = await client.post(base_url + '/chat/completions',
+                    headers={'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
+                    json=payload)
+        diagnostic['http_status'] = upstream.status_code
+        upstream.raise_for_status()
+        data = upstream.json()
+        if not isinstance(data, dict):
+            raise ValueError('invalid response')
+        for field in ('id', 'model', 'provider'):
+            if isinstance(data.get(field), str):
+                diagnostic[field] = data[field][:160]
+        usage = data.get('usage')
+        if isinstance(usage, dict):
+            for field in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+                if type(usage.get(field)) is int:
+                    diagnostic[field] = usage[field]
+            details = usage.get('completion_tokens_details')
+            if isinstance(details, dict) and type(details.get('reasoning_tokens')) is int:
+                diagnostic['reasoning_tokens'] = details['reasoning_tokens']
+        choice = data['choices'][0]
+        if not isinstance(choice, dict):
+            raise ValueError('invalid choice')
+        finish_reason = choice.get('finish_reason')
+        if isinstance(finish_reason, str):
+            diagnostic['finish_reason'] = finish_reason[:80]
+        if finish_reason == 'length':
+            diagnostic['outcome'] = 'truncated'
+            raise HTTPException(502, 'AI 回复未完整生成，请重试或联系教师调整输出额度')
+        answer = choice['message']['content']
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError('empty answer')
+        diagnostic['outcome'] = 'success'
+        return answer
     except httpx.HTTPStatusError as error:
+        diagnostic['outcome'] = 'upstream_error'
         detail = {401: 'AI 服务密钥无效，请联系管理员', 402: 'AI 服务余额不足，请联系管理员',
                   403: 'AI 服务拒绝访问，请联系管理员检查权限', 404: 'AI 模型不可用，请联系管理员检查模型配置',
                   429: 'AI 服务繁忙，请稍后重试'}.get(error.response.status_code, 'AI 服务暂时无法响应，请稍后重试')
         raise HTTPException(502, detail) from None
-    except httpx.TimeoutException:
+    except (httpx.TimeoutException, TimeoutError):
+        diagnostic['outcome'] = 'timeout'
         raise HTTPException(504, 'AI 回复超时，请稍后重试') from None
     except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
+        diagnostic['outcome'] = 'invalid_response'
         raise HTTPException(502, 'AI 服务暂时无法响应，请稍后重试') from None
+    except asyncio.CancelledError:
+        diagnostic['outcome'] = 'cancelled'
+        raise
+    finally:
+        diagnostic['elapsed_ms'] = round((time.monotonic() - started) * 1000)
+        # Log metadata only, never students' messages, images, model text or keys.
+        ai_logger.info('ai_request %s', json.dumps(diagnostic, ensure_ascii=False))
 
 
 @app.get('/api/chats')

@@ -7,6 +7,7 @@ import os
 import secrets
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
@@ -337,7 +338,9 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
         grape_results = current_lesson and lesson_api.config(current_lesson)[0] == 4 and body.stage == 1
         if grape_results:
             schema = lesson_grape.CHAT_SCHEMA
-        answer = await call_ai(messages, response_schema=schema)
+        direct = lesson_grape.direct_matches(question) if grape_results and not image_records else None
+        answer = (json.dumps(dict(**direct, case_ids=[], text=''), ensure_ascii=False) if direct is not None
+                  else await call_ai(messages, response_schema=schema))
         session.expire_all()
         if current_lesson:
             current_lesson=lesson_api.get(session,body.lesson_id,body.stage,write=True)
@@ -367,6 +370,10 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
     @router.post('/chats', status_code=201)
     async def ask(body: MessageInput, user=Depends(identity), session=Depends(db)):
         if user.role != 'student': raise HTTPException(403,'请使用小组身份对话')
+        # An in-flight request keeps its authorized identity even if logout deletes
+        # the session row. Cleanup must never reload that row after a rollback.
+        group_id = user.group_id
+        user = SimpleNamespace(role=user.role, name=user.name, group_id=group_id)
         key=None
         if body.lesson_id:
             lesson=lesson_api.get(session,body.lesson_id,body.stage,write=True)
@@ -396,7 +403,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 if old and not old.result:session.delete(old);session.commit()
             raise
         finally:
-            chat_running.discard(user.group_id)
+            chat_running.discard(group_id)
 
     from .speech import install_speech
     install_speech(router,Base,db,identity,lesson_api,rate_limit)

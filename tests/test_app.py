@@ -111,9 +111,11 @@ def test_ai_unconfigured_and_mocked(env, monkeypatch):
         assert len(json.loads(calls[-1].content)['messages']) == 2
 
 
-def test_ai_truncated_response_is_not_saved(env, monkeypatch):
+def test_ai_truncated_response_is_not_saved(env, monkeypatch, caplog):
     import json
+    import logging
     module, client = env
+    caplog.set_level(logging.INFO, logger='uvicorn.error')
     register(client)
     monkeypatch.setenv('AI_API_KEY', 'test-key')
     monkeypatch.setenv('AI_MODEL', '~deepseek/deepseek-flash-latest')
@@ -125,12 +127,68 @@ def test_ai_truncated_response_is_not_saved(env, monkeypatch):
         assert payload['max_tokens'] == 8192
         assert payload['reasoning'] == {'effort': 'low'}
         assert 'response_format' not in payload  # Ordinary workbench chat remains plain text.
-        return httpx.Response(200, json={'choices': [{'finish_reason': 'length', 'message': {'content': '这是一段未完成的'}}]})
+        return httpx.Response(200, json={'id': 'gen-truncated-test', 'model': 'actual-test-model', 'provider': 'test-provider',
+            'usage': {'prompt_tokens': 1200, 'completion_tokens': 8192, 'total_tokens': 9392,
+                      'completion_tokens_details': {'reasoning_tokens': 8100}},
+            'choices': [{'finish_reason': 'length', 'message': {'content': '这是一段未完成的'}}]})
     monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
     response = client.post('/api/chats', json={'message': '解释这个实验'})
     assert response.status_code == 502
     assert '未完整生成' in response.json()['detail']
     assert client.get('/api/chats').json() == []
+    records = [r.getMessage() for r in caplog.records if r.getMessage().startswith('ai_request ')]
+    diagnostic = json.loads(records[-1].removeprefix('ai_request '))
+    assert diagnostic['outcome'] == 'truncated' and diagnostic['finish_reason'] == 'length'
+    assert diagnostic['id'] == 'gen-truncated-test' and diagnostic['model'] == 'actual-test-model'
+    assert diagnostic['completion_tokens'] == 8192 and diagnostic['reasoning_tokens'] == 8100
+    assert diagnostic['prompt_tokens'] == 1200 and diagnostic['elapsed_ms'] >= 0
+    assert all(s not in records[-1] for s in ['test-key', '解释这个实验', '这是一段未完成的'])
+
+
+def test_ai_total_deadline_stops_trickling_response_and_next_request_works(env, monkeypatch, caplog):
+    import asyncio
+    import json
+    import logging
+    from fastapi import HTTPException
+    module, _ = env
+    monkeypatch.setenv('AI_API_KEY', 'test-key')
+    monkeypatch.setenv('AI_MODEL', 'mock')
+    monkeypatch.setattr(module, 'AI_REQUEST_TIMEOUT_SECONDS', 0.2)
+    caplog.set_level(logging.INFO, logger='uvicorn.error')
+    real_client = httpx.AsyncClient
+    closed, chunks, calls = False, 0, 0
+
+    class Trickle(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            nonlocal chunks
+            while True:
+                await asyncio.sleep(0.005)
+                chunks += 1
+                yield b' '
+
+        async def aclose(self):
+            nonlocal closed
+            closed = True
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, stream=Trickle())
+        return httpx.Response(200, json={'choices': [{'message': {'content': '已恢复'}}]})
+
+    monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+
+    async def run():
+        with pytest.raises(HTTPException) as error:
+            await asyncio.wait_for(module.call_ai([{'role': 'user', 'content': 'private-question'}]), 1)
+        assert error.value.status_code == 504
+        assert closed and chunks > 1
+        assert await module.call_ai([{'role': 'user', 'content': 'private-question'}]) == '已恢复'
+
+    asyncio.run(run())
+    records = [json.loads(r.getMessage().removeprefix('ai_request ')) for r in caplog.records if r.getMessage().startswith('ai_request ')]
+    assert [r['outcome'] for r in records] == ['timeout', 'success']
 
 
 def test_rate_limit_and_closed_registration(env, monkeypatch):

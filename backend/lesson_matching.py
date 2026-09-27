@@ -52,12 +52,15 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
                         curriculum = grape if record.mapping_version == grape.MATCH_VERSION else v3
                         parts = [{'type': 'text', 'text': json.dumps({'fields': payload['fields']}, ensure_ascii=False)}]
                         parts += picture_parts(session, payload['file_ids'], version.lesson_id, version.group_id, 1)
-                        response = await call_ai([
-                            {'role': 'system', 'content': curriculum.MATCH_PROMPT + json.dumps(
-                                {key: value[0] for key, value in catalogue.items()}, ensure_ascii=False)},
-                            {'role': 'user', 'content': parts},
-                        ], response_schema=curriculum.MATCH_SCHEMA)
-                        result = parse_json(response)
+                        result = (grape.direct_matches(payload['fields'].get('design', ''))
+                                  if curriculum is grape and not payload['file_ids'] else None)
+                        if result is None:
+                            response = await call_ai([
+                                {'role': 'system', 'content': curriculum.MATCH_PROMPT + json.dumps(
+                                    {key: value[0] for key, value in catalogue.items()}, ensure_ascii=False)},
+                                {'role': 'user', 'content': parts},
+                            ], response_schema=curriculum.MATCH_SCHEMA)
+                            result = parse_json(response)
                         if curriculum is grape:
                             grape.validate_matches(result)
                         if not isinstance(result, dict) or set(result) != {'readable', 'matches', 'questions', 'uncovered'}:

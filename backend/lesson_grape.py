@@ -1,6 +1,8 @@
 """Lesson 2: source-backed grape cases, fixed mass results and plan feedback."""
 from copy import deepcopy
 import json
+import re
+import unicodedata
 
 from .lesson_content import field
 from .ai_schemas import object_schema, grading_schema
@@ -22,6 +24,56 @@ RESULTS = {
     'cppu': ('CPPU', dict(mass=300, uncertainty=2.8, significance='b')),
     'combined': ('GA₃ ＋ CPPU', dict(mass=320, uncertainty=2.8, significance='a')),
 }
+
+
+def direct_matches(message):
+    """Recognize complete, explicit text treatments; defer everything else to AI."""
+    if not message.strip() or len(message) > 500:
+        return None
+    aliases = {'GA3': 'ga3', '赤霉素': 'ga3', 'CPPU': 'cppu', '氯吡脲': 'cppu',
+               '蒸馏水': 'water', '清水': 'water', '水': 'water'}
+    name = r'(?:ga3|cppu|water)'
+    action = r'(?:加入|添加|施用|使用|喷施|加|用)'
+    matches = {}
+    clauses = [s for s in re.split(r'[，,；;。\n]+', message) if s.strip()]
+    seen_groups = set()
+    for excerpt in clauses:
+        clause = re.sub(r'\s+', '', unicodedata.normalize('NFKC', excerpt).upper())
+        clause = re.sub('|'.join(aliases), lambda m: aliases[m[0]], clause)
+        group = re.match(r'^(第?[一二三四1234ABCD甲乙丙丁]组|对照组|实验组|本组|同一组):?', clause)
+        group_name = group[1].removeprefix('第') if group else None
+        if len(clauses) > 1 and (group_name is None or group_name in seen_groups):
+            return None  # Unlabelled or repeated groups may describe sequential treatment.
+        seen_groups.add(group_name)
+        same_group = group_name == '同一组'
+        if group:
+            clause = clause[group.end():]
+        single = re.fullmatch(rf'(?:(?:仅仅|仅|只|单独)?{action}({name})(?:处理)?|({name})(?:单独处理|处理对照|处理|对照))', clause)
+        separate = re.fullmatch(rf'(?:[两二三四234]组|各组)?分别{action}({name}(?:[、和与]{name})+)(?:处理)?', clause)
+        combined = re.fullmatch(rf'(?:{action})?({name})\+({name})(?:处理)?', clause)
+        if not combined:
+            combined = re.fullmatch(rf'(?:同时|联合|共同|混合){action}({name})[和与]({name})(?:处理)?', clause)
+        if not combined:
+            combined = re.fullmatch(rf'({name})[和与]({name})(?:联合|共同|混合)处理', clause)
+        if not combined and same_group:
+            combined = re.fullmatch(rf'{action}({name})[和与]({name})(?:处理)?', clause)
+        if single:
+            keys = [single[1] or single[2]]
+        elif separate:
+            keys = re.split('[、和与]', separate[1])
+        elif combined and set(combined.groups()) == {'ga3', 'cppu'}:
+            keys = ['combined']
+        else:
+            # No keyword fallback: negatives, references, questions, other plants,
+            # extra drugs and incomplete clauses must not disclose fixed results.
+            return None
+        for key in keys:
+            matches.setdefault(key, dict(result_id=key, excerpt=excerpt.strip()))
+    if not matches:
+        return None
+    return dict(readable=True, matches=list(matches.values()), questions=[], uncovered=[])
+
+
 STAGES = {
     1: dict(title='案例查阅与实验结果', question='植物激素怎样影响葡萄生长？怎样比较增产效果？', minutes=None,
         task='向 AI 索取案例，归纳生长素、细胞分裂素和赤霉素的作用；再设计实验，提交后获取对应处理的百粒质量。',

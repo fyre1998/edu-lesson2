@@ -437,17 +437,33 @@ test('summary fullscreen updates together with the teacher panel and hides stale
 });
 
 
-test('grape lesson renders fixed mass rows, no image URLs, and escapes excerpts',()=>{
+test('grape lesson shows only matched mass rows and retains clarification when unmatched',()=>{
   const h=setup();
   h.run("S.lesson.flow_version=4; S.stage=1");
   const html=h.run(`grapeResultsHTML({revision:1,status:'ready',matches:[{label:'水处理对照',mass:170,uncertainty:5.7,significance:'d',excerpt:'<img onerror=alert(1)>'}],questions:[],uncovered:['苹果GA3'],error:''})`);
   assert.match(html,/170 ± 5.7/);
   assert.match(html,/百粒质量 \/ g/);
-  assert.match(html,/暂无对应课件数据：苹果GA3/);
-  assert.match(html,/&lt;img/);
-  assert.doesNotMatch(html,/<img|result\.png/);
+  assert.doesNotMatch(html,/来源|课件参考|匹配依据|字母标记|暂无对应|<img|onerror|result\.png/);
+  const unmatched=h.run(`grapeResultsHTML({revision:1,status:'needs_clarification',matches:[],questions:['请写明各组处理'],uncovered:['苹果GA3'],error:''})`);
+  assert.match(unmatched,/请写明各组处理/);
+  assert.match(unmatched,/暂无对应课件数据：苹果GA3/);
   assert.equal(h.run('isInquiry()'),true);
   assert.equal(h.run('isGrape()'),true);
+});
+
+test('saved grape result replies use the concise display without changing cases or other stages',()=>{
+  const h=setup();h.run('S.lesson.flow_version=4;S.stage=1');
+  const result='对应处理的百粒质量：\nGA₃：225 ± 2.8 g（字母标记 c）\nCPPU：300 ± 2.8 g（字母标记 b）';
+  const saved=result+'\n\n来源：教师提供的《植物激素》课件第4页。这些是课件参考数据，并非本组实测；不据此推算未提供条件的结果。\n\n是否加入CPPU？';
+  const compact='对应处理的百粒质量：\nGA₃：225 ± 2.8 g\nCPPU：300 ± 2.8 g';
+  assert.equal(h.run(`chatAnswerText(${JSON.stringify(saved)})`),compact);
+  const cases='生长素案例\n案例内容\n\n来源：教师提供的《植物激素》课件第3页。';
+  assert.equal(h.run(`chatAnswerText(${JSON.stringify(cases+'\n\n'+saved)})`),cases+'\n\n'+compact);
+  assert.equal(h.run(`chatAnswerText(${JSON.stringify(cases)})`),cases);
+  const html=h.run(`chatsHTML([{author:'第 1 组',question:'加入GA3',answer:${JSON.stringify(saved)}}])`);
+  assert.match(html,/225 ± 2.8 g/);assert.doesNotMatch(html,/字母标记|来源|是否加入/);
+  h.run('S.stage=2');assert.equal(h.run(`chatAnswerText(${JSON.stringify(saved)})`),saved);
+  h.run('S.stage=1;S.lesson.flow_version=3');assert.equal(h.run(`chatAnswerText(${JSON.stringify(saved)})`),saved);
 });
 
 test('grape stage two retains the student score bubble and revision advice',()=>{

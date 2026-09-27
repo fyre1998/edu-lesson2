@@ -174,8 +174,9 @@ function matchHTML(m,actions=true) {
 }
 function grapeResultsHTML(m,actions=true) {
   if(!m)return '<p class="notice">提交各组实验处理或任务单照片后，在此查看对应百粒质量。本环节不计分。</p>';
+  if(m.matches.length)return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><div class="mass-table-scroll"><table class="material-table mass-table"><caption>对应处理的百粒质量</caption><thead><tr><th scope="col">处理</th><th scope="col">百粒质量 / g</th></tr></thead><tbody>${m.matches.map(r=>`<tr><th scope="row">${esc(r.label)}</th><td><strong>${esc(r.mass)} ± ${esc(r.uncertainty)}</strong></td></tr>`).join('')}</tbody></table></div></section>`;
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
-  return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.matches.length?`<div class="mass-table-scroll"><table class="material-table mass-table"><caption>对应处理的百粒质量</caption><thead><tr><th scope="col">处理</th><th scope="col">百粒质量 / g</th></tr></thead><tbody>${m.matches.map(r=>`<tr><th scope="row">${esc(r.label)}</th><td><strong>${esc(r.mass)} ± ${esc(r.uncertainty)}</strong></td></tr>`).join('')}</tbody></table></div><p class="fine">来源：《植物激素》课件第4页。课件参考数据，非本组实测；不据此推算未提供条件的结果。</p><details><summary>查看处理匹配依据</summary>${m.matches.map(r=>`<p><strong>${esc(r.label)}：</strong>${esc(r.excerpt)}</p>`).join('')}</details>`:''}${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
+  return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
 function versionExtras(v) {
   if(!isInquiry())return '';
@@ -429,8 +430,15 @@ function treatmentLabel(t) { return {bean_shading:'菜豆遮光实验预期结�
 async function control(body) { await api(base(),{method:'PATCH',body}); await loadLessons(S.lesson.id); await refreshEvents(); }
 async function createLesson() { const title=$('#newLessonTitle')?.value||'植物激素与葡萄增产 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
 function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
+function chatAnswerText(answer) {
+  if(!isGrape()||S.stage!==1)return answer;
+  // Apply the current display format to saved replies without changing the records.
+  const sections=answer.split(/\n\s*\n/), index=sections.findIndex(s=>s.startsWith('对应处理的百粒质量：\n'));
+  if(index<0)return answer;
+  return [...sections.slice(0,index),sections[index].replace(/（字母标记 [a-d]）/g,'')].join('\n\n');
+}
 function chatsHTML(chats,versions=[],files=[]) {
-  const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(c.answer)}</p></div>`}));
+  const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(chatAnswerText(c.answer))}</p></div>`}));
   versions.forEach((v,i)=>entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次实验思路</div><p>${esc(v.fields.design||'请查看本次提交的实验思路照片。')}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次实验结果</div>${v.result_match?matchHTML(v.result_match):`<p class="muted">已收到本次思路，正在准备对应的${isGrape()?'百粒质量':'结果图'}…</p>`}</div></div>`}));
   return entries.sort((a,b)=>a.time-b.time).map(entry=>entry.html).join('');
 }

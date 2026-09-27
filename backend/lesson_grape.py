@@ -83,6 +83,7 @@ MATCH_PROMPT = '''你是葡萄实验处理分类员。只读取本次fields和�
 仅说有CPPU、GA3和水这些材料，或问哪种效果好，不等于设计了处理；先追问各组用什么处理。不把未明确的空白对照自动补成水处理；“对照组加蒸馏水”可匹配。
 明确换成苹果等其他材料，或明确增加其他激素/药剂的处理无对应数据，放入uncovered；可匹配的其他组正常返回。生长素不能当成GA3；未明确氯吡脲/CPPU的细胞分裂素不能当成CPPU。
 只匹配本次提交实际出现的组，不补全四组、不推荐最优、不返回数值或因果结论。excerpt忠实摘录原话或可核查图片描述。匹配ID不重复。
+已明确写出的处理直接匹配，不追加询问是否还加入其他药剂；已经匹配出结果时questions留空。
 readable为是否能辨认；看不清且文字不足时false，matches为空，questions说明需补拍。可读但处理模糊时true，questions只问一个关键问题。不存在数据时uncovered说明该处理暂无课件对应数据。
 返回纯JSON readable、matches（result_id/excerpt）、questions、uncovered。分类表：'''
 MATCH_SCHEMA = object_schema({
@@ -183,8 +184,8 @@ def chat_answer(result):
         sections.append('来源：教师提供的《植物激素》课件第3页。请根据处理与现象归纳激素作用。')
     if matched['matches']:
         rows = [result_row(i) for i in matched['matches']]
-        sections.append('对应处理的百粒质量：\n' + '\n'.join(f'{r["label"]}：{r["mass"]} ± {r["uncertainty"]} g（字母标记 {r["significance"]}）' for r in rows))
-        sections.append('来源：' + SOURCE + '。这些是课件参考数据，并非本组实测；不据此推算未提供条件的结果。')
+        sections.append('对应处理的百粒质量：\n' + '\n'.join(f'{r["label"]}：{r["mass"]} ± {r["uncertainty"]} g' for r in rows))
+        return '\n\n'.join(sections)
     sections.extend(matched['questions'])
     sections.extend('暂无对应课件数据：' + s for s in matched['uncovered'])
     # Numeric results always come from the fixed catalogue, never free model text.

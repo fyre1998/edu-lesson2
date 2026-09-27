@@ -71,7 +71,7 @@ def test_only_matched_masses_are_server_values_and_history_is_preserved(env, mon
 def test_cases_and_results_work_in_chat_without_fabricated_values(env, monkeypatch):
     module, c = env; lid = start(c, monkeypatch); student(c, 1)
     replies = [dict(**matching(), case_ids=['cytokinin'], text='虚构数值999克'),
-               dict(**matching('ga3', 'cppu'), case_ids=[], text='应该返回999克')]
+               dict(**matching('ga3', 'cppu', questions=['是否还加入其他药剂？']), case_ids=[], text='应该返回999克')]
     calls = mock(module, monkeypatch, lambda _: replies.pop(0))
     answer = chat(c, lid, '请给我细胞分裂素的案例')
     assert answer.status_code == 201, answer.text
@@ -81,6 +81,7 @@ def test_cases_and_results_work_in_chat_without_fabricated_values(env, monkeypat
     assert answer.status_code == 201, answer.text
     assert '225 ± 2.8 g' in answer.json()['answer'] and '300 ± 2.8 g' in answer.json()['answer']
     assert '320' not in answer.json()['answer'] and '999' not in answer.json()['answer']
+    assert answer.json()['answer'] == '对应处理的百粒质量：\nGA₃：225 ± 2.8 g\nCPPU：300 ± 2.8 g'
     assert 'case_ids' in calls[0]['response_format']['json_schema']['schema']['properties']
 
 

@@ -84,3 +84,58 @@ def test_old_blank_and_corrected_scores_have_safe_fallbacks(env, monkeypatch):
     assert score['total'] == 0 and score['status'] == 'corrected'
     assert score['feedback']['source'] == 'teacher_review' and not score['feedback']['strengths']
     assert '教师后台复核说明' not in json.dumps(score, ensure_ascii=False)
+
+
+def test_compact_feedback_limits_and_legacy_reading():
+    from backend.student_feedback import student_feedback
+    from backend.ai_schemas import grading_schema
+    items = [dict(key='design', label='实验设计', points=5, maximum=10, missing=False)]
+    schema = grading_schema([('design', '实验设计', 10, '')], set())
+    assert schema['properties']['feedback']['properties']['strengths']['items']['properties']['text']['maxLength'] == 40
+    assert schema['properties']['feedback']['properties']['improvements']['items']['properties']['text']['maxLength'] == 20
+    raw = dict(strengths=[dict(key='design', text='优' * 40)], improvements=[dict(key='design', text='改' * 19 + '。')])
+    assert student_feedback(raw, items, compact=True)['improvements'][0]['text'] == '改' * 19 + '。'
+    raw['improvements'][0]['text'] += '！'
+    fallback = student_feedback(raw, items, compact=True)
+    assert fallback['source'] == 'score_summary'
+    assert all(len(i['text']) <= 20 for i in fallback['improvements'])
+    assert '改' * 20 not in str(fallback)  # Never mechanically cut off new advice.
+    historical = student_feedback(raw, items)
+    assert historical['improvements'][0]['text'] == raw['improvements'][0]['text']
+    raw['strengths'][0]['text'] += '优'
+    raw['improvements'][0]['text'] = '请补充比较依据。'
+    assert not student_feedback(raw, items, compact=True)['strengths']
+
+
+def test_compact_fallback_sources_marks_and_long_labels():
+    from backend.student_feedback import student_feedback
+    items = [dict(key='design', label='特别长的项目名称' * 8, points=0, maximum=10, missing=True)]
+    for corrected in (False, True):
+        result = student_feedback({}, items, corrected=corrected, compact=True)
+        assert not result['strengths']
+        assert result['source'] == ('teacher_review' if corrected else 'score_summary')
+        assert all(len(i['text']) <= 20 for i in result['improvements'])
+        assert student_feedback(result, items)['source'] == result['source']
+    items[0].update(points=10, missing=False)
+    result = student_feedback({}, items, compact=True)
+    assert result['improvements'] == []
+    assert all(len(i['text']) <= 40 for i in result['strengths'])
+
+
+def test_overlong_model_feedback_does_not_fail_scoring(env, monkeypatch):
+    module, client = env
+    lesson_id = start(client, monkeypatch, 3)
+    student(client, 1)
+    def response(request, payload):
+        system = payload['messages'][0]['content']
+        assert '改进建议每条最多20个字符' in system
+        rubric = json.loads(system.split('量规：')[-1])
+        result = {'items': [dict(key=r[0], points=1, missing=False, evidence=['field:summary'], reason='教师专用依据') for r in rubric],
+                  'feedback': {'strengths': [], 'improvements': [dict(key=rubric[0][0], text='长' * 21)]}}
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(result)}}]})
+    mock_ai(module, monkeypatch, response)
+    submit(client, lesson_id, 3, {'summary': '比较尖端与琼脂的操作'})
+    score = client.get(f'/api/classroom/lessons/{lesson_id}/groups?stage=3').json()[0]['scores']['stages'][2]
+    assert score['status'] == 'ready' and score['total'] == 4
+    assert score['feedback']['source'] == 'score_summary'
+    assert all(len(i['text']) <= 20 for i in score['feedback']['improvements'])

@@ -132,7 +132,7 @@ function renderFrame() {
   show('#lessonMaterials',!isTeacher());
   if(isTeacher()) {
     const live=S.lesson.status==='live';
-    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${!isInquiry()&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">并排投屏</button></div>`;
+    $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${!isInquiry()&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">成果投屏</button></div>`;
   }
 }
 function materialHTML(m) {
@@ -220,7 +220,7 @@ function fileHTML(f,actions=false) {
   return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'?'disabled':''}>${included?'已附成果':'附到成果'}</button>${f.preview?`<button type="button" data-ai-image="${esc(f.id)}">交给 AI</button>`:''}</div>`:''}</div>`;
 }
 function fieldsHTML(fields, projection=false) {
-  const list=S.content.content.fields.filter(f=>!f.hidden||(f.legacy&&fields[f.key]));
+  const list=S.content.content.fields.filter(f=>(!f.hidden||(f.legacy&&fields[f.key]))&&(!projection||String(fields[f.key]??'').trim()));
   if(projection && S.stage===(S.lesson.assignment_stage||2))list.sort((a,b)=>(a.key==='conclusion'?-1:b.key==='conclusion'?1:0));
   if(isModel()&&fields.model_files)return pictureModelHTML(fields)+`<h3>未达预期结果后的讨论答案</h3><p class="answer-text">${esc(fields.discussion||(fields.phase==='model'?'待放置姓名后讨论':fileIds(fields,'discussion_files').length?'见下方答案图片':'尚未填写'))}</p>`+pictureAnswersHTML(fields);
   if(isModel())return modelHTML(fields)+ '<dl>'+list.filter(f=>!['sense','substance','elongation',...modelFields()].includes(f.key)).map(f=>`<dt>${esc(f.label)}</dt><dd>${esc(fields[f.key]||'尚未填写')}</dd>`).join('')+'</dl>';
@@ -509,37 +509,42 @@ async function uploadFiles(files,{submitToAI=false}={}) {
   } catch(e) { toast(`已上传 ${count} 份；${e.message}`); return false; }
   finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(S.user&&seq===S.seq){if(isModel())renderExtras();renderChat();} }
 }
-async function present(left) {
+async function present(group) {
   stopPresentation();
   presentation.mode='work';
-  $('#compareLeft').innerHTML=$('#compareRight').innerHTML=S.roster.groups.filter(g=>g.id<=S.lesson.group_count).map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');
-  $('#compareLeft').value=left||S.group; $('#compareRight').value=(Number(left||S.group)%S.lesson.group_count)+1;
-  $('#presentationTitle').textContent=`环节 ${S.stage} · ${S.content.content.question}`;
+  $('#presentationGroup').innerHTML=S.roster.groups.filter(g=>g.id<=S.lesson.group_count).map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');
+  $('#presentationGroup').value=group||S.group||1;
   $('#presentationDialog').showModal(); await compare();
 }
 async function compare() {
   if(!$('#presentationDialog').open)return;
   clearTimeout(presentation.timer); presentation.timer=null;
-  const request=++presentation.request, seq=S.seq, ids=[$('#compareLeft').value,$('#compareRight').value], mode=presentation.mode;
+  const request=++presentation.request, seq=S.seq, id=$('#presentationGroup').value, mode=presentation.mode;
   presentation.loading=true; renderPresentationControls();
-  $('#comparison').innerHTML=`<p class="loading" role="status">正在读取${mode==='chat'?'小组与 AI 对话':'小组成果与评分'}…</p>`;
+  $('#comparison').classList.toggle('is-chat',mode==='chat');
+  $('#comparison').innerHTML='<p class="loading" role="status">正在读取本组内容…</p>';
   try {
-    const [data,groups]=await Promise.all([
-      Promise.all(ids.map(g=>api(base()+`/groups/${g}/stages/${S.stage}`))),
+    const [work,groups]=await Promise.all([
+      api(base()+`/groups/${id}/stages/${S.stage}`),
       mode==='chat'?api(base()+`/groups?stage=${S.stage}`):Promise.resolve([])
     ]);
     if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
-    $('#comparison').innerHTML=data.map((w,i)=>{
-      if(mode==='chat')return presentationChatHTML(w,groups.find(g=>g.id===Number(ids[i])),ids[i]);
-      const v=w.versions.at(-1), record=v||w.work;
-      // Model and discussion images are already rendered with their annotations.
-      const pictureIds=isModel()?[...fileIds(record.fields,'model_files'),...fileIds(record.fields,'discussion_files')]:[];
-      return `<section aria-label="第 ${ids[i]} 组成果与评分"><header class="comparison-heading"><h3>第 ${ids[i]} 组</h3><p class="fine">${v?'展示最近提交 · '+stamp(v.updated):'本组尚未提交，以下为草稿'}</p></header>${presentationScoreHTML(w)}<div class="comparison-work" tabindex="0" aria-label="第 ${ids[i]} 组成果，可滚动查看">${w.assignment?.adjusted_at>=v?.updated?'<p class="notice">提交后教师调整过情境，以下解释可能基于先前结果，需重新核对。</p>':''}${isInquiry()&&S.stage===1?matchHTML(v?.result_match,false):assignmentHTML(w.assignment)}${fieldsHTML(record.fields,true)}${versionFiles(record.file_ids.filter(id=>!pictureIds.includes(id)),w.files)}</div></section>`;
-    }).join('');
+    if(mode==='chat') {
+      $('#comparison').innerHTML=presentationChatHTML(work,groups.find(g=>g.id===Number(id)),id);
+    } else {
+      const version=work.versions.at(-1);
+      const pictureIds=version&&isModel()?[...fileIds(version.fields,'model_files'),...fileIds(version.fields,'discussion_files')]:[];
+      const submitted=version?`${fieldsHTML(version.fields,true)}${versionFiles(version.file_ids.filter(fid=>!pictureIds.includes(fid)),work.files)}`:'<p class="muted">尚未提交成果。</p>';
+      const adjusted=version&&work.assignment?.adjusted_at>=version.updated?'<p class="notice">提交后教师调整过情境，请核对对应结果。</p>':'';
+      const result=isInquiry()&&S.stage===1
+        ?`<p class="projection-caption">本环节不计分</p>${version?(matchHTML(version.result_match,false)||'<p>正在准备对应结果，请稍后更新展示。</p>'):'<p>提交后查看对应实验结果。</p>'}`
+        :presentationScoreHTML(work);
+      $('#comparison').innerHTML=`<section class="projection-pane" aria-label="第 ${id} 组成果"><header class="comparison-heading"><h3>学生成果</h3><p class="projection-caption">${version?'最近提交 · '+stamp(version.updated):'本组尚未提交'}</p></header><div class="comparison-work" tabindex="0" aria-label="第 ${id} 组成果，可滚动查看">${adjusted}${submitted}${!isInquiry()?assignmentHTML(work.assignment):''}</div></section><section class="projection-pane projection-review" aria-label="第 ${id} 组${isInquiry()&&S.stage===1?'实验结果':'评分与建议'}"><header class="comparison-heading"><h3>${isInquiry()&&S.stage===1?'实验结果':'评分与建议'}</h3></header><div class="projection-review-scroll" tabindex="0" aria-label="本组评价与结果，可滚动查看">${result}</div></section>`;
+    }
   } catch(e) {
     if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
     presentation.auto=false;
-    $('#comparison').innerHTML=`<p class="notice" role="alert">${mode==='chat'?'小组对话':'成果与评分'}读取失败，自动切换已暂停。请点击“更新展示”重试。</p>`;
+    $('#comparison').innerHTML='<p class="notice" role="alert">本组内容读取失败，自动切换已暂停。请点击“更新展示”重试。</p>';
     throw e;
   } finally {
     if(request===presentation.request) {
@@ -550,7 +555,7 @@ async function compare() {
 function presentationChatHTML(work, group, id) {
   const chats=group?.chats||[],versions=isInquiry()&&S.stage===1?work.versions:[];
   const conversation=chatsHTML(chats,versions,work.files);
-  return `<section aria-label="第 ${id} 组与 AI 对话"><header class="comparison-heading"><h3>第 ${id} 组</h3><p class="fine">环节 ${S.stage} · ${chats.length} 轮对话${versions.length?' · '+versions.length+' 次实验思路与结果':''}</p></header><div class="comparison-work comparison-chat" tabindex="0" aria-label="第 ${id} 组与 AI 对话，可滚动查看">${S.content.opener?`<details class="conversation-opener"><summary>本环节引导</summary><p>${esc(S.content.opener)}</p></details>`:''}${conversation||'<p class="muted">本组在当前环节还没有与 AI 的对话。</p>'}</div></section>`;
+  return `<section class="projection-pane projection-chat-pane" aria-label="第 ${id} 组与 AI 对话"><header class="comparison-heading"><h3>第 ${id} 组与 AI 对话</h3><p class="projection-caption">环节 ${S.stage} · ${chats.length} 轮对话${versions.length?' · '+versions.length+' 次实验思路与结果':''}</p></header><div class="comparison-work comparison-chat" tabindex="0" aria-label="第 ${id} 组与 AI 对话，可滚动查看">${S.content.opener?`<details class="conversation-opener"><summary>本环节引导</summary><p>${esc(S.content.opener)}</p></details>`:''}${conversation||'<p class="muted">本组在当前环节还没有与 AI 的对话。</p>'}</div></section>`;
 }
 async function togglePresentationMode() {
   if(!$('#presentationDialog').open)return;
@@ -558,41 +563,46 @@ async function togglePresentationMode() {
   await compare();
 }
 function presentationScoreHTML(work) {
-  if(isInquiry()&&S.stage===1)return '<div class="comparison-score"><p class="fine">本部分不计分 · 比较实验思路与对应结果</p></div>';
-  if(!work.scores)return '<div class="comparison-score"><p class="fine">本课次未启用积分评分。</p></div>';
-  const score=work.scores.stages.find(s=>s.stage===S.stage), latest=work.versions.at(-1);
-  if(!score || (score.version_id||null)!==(latest?.id||null))return '<div class="comparison-score"><p class="fine">成果已有更新，请点击“更新展示”同步对应评分。</p></div>';
+  if(isInquiry()&&S.stage===1)return '<p>本环节不计分。</p>';
+  if(!work.versions.length)return '<p>尚未提交成果，暂无评分与建议。</p>';
+  if(!work.scores)return '<p>本课次未启用积分评分。</p>';
+  const candidate=work.scores.stages.find(s=>s.stage===S.stage), latest=work.versions.at(-1);
+  const score=candidate?scoreForLatestSubmission(candidate,work.versions):null;
+  if(!score || (score.version_id||null)!==(latest?.id||null))return '<p>成果已有更新，请点击“更新展示”同步对应评分。</p>';
   const completed=completedScore(score), displayed=displayedScore(score), feedback=completed?score.feedback:null;
-  const suggestions=feedback?.improvements?.slice(0,2)||[];
+  const strengths=feedback?.strengths||[], suggestions=feedback?.improvements?.slice(0,2)||[];
   const source=feedback?.source==='score_summary'?'以下为按得分整理的提示。':feedback?.source==='teacher_review'?'以下提示按教师复核后的分数整理。':'';
-  return `<div class="comparison-score"><div class="comparison-score-heading"><strong>本环节 ${displayed?.total??'—'} <small>/ ${displayed?.maximum??score.maximum}</small></strong><span class="state">${score.retained_score?'新提交':''}${esc(scoreStatus[score.status]||score.status)}</span></div>${retainedScoreHTML(score)}${scoreHistoryHTML(score)}${completed?`<div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} <strong>${i.points??'—'} / ${i.maximum}</strong></span>`).join('')}</div><div class="comparison-feedback"><h4>改进建议</h4>${source?`<p class="fine">${source}</p>`:''}${suggestions.length?`<ol>${suggestions.map(i=>`<li>${esc(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'本次提交已达到本环节要求，暂无需要改进的项目。':'本次评分暂无改进建议，可查看教师评分说明。'}</p>`}<details><summary>评分说明</summary>${score.items.map(i=>`<p><strong>${esc(i.label)}：</strong>${esc(i.reason||'暂无详细说明')}</p>`).join('')}${score.correction?.reason?`<p><strong>教师复核：</strong>${esc(score.correction.reason)}</p>`:''}</details></div>`:`<p class="fine">${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':score.status==='unsubmitted'?'尚未提交成果，暂无评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}</div>`;
+  const details=completed?`<details class="projection-details"><summary>查看评分明细${strengths.length>1?'与其他优点':''}</summary>${strengths.length>1?`<h4>其他优点</h4><ul>${strengths.slice(1).map(i=>`<li>${feedbackTextHTML(i.text)}</li>`).join('')}</ul>`:''}${score.items.map(i=>`<p><strong>${esc(i.label)}：${i.points??'—'} / ${i.maximum}</strong><br>${esc(i.reason||'暂无详细说明')}</p>`).join('')}${score.correction?.reason?`<p><strong>教师复核：</strong>${esc(score.correction.reason)}</p>`:''}</details>`:'';
+  return `<div class="comparison-score"><div class="comparison-score-heading"><strong>本环节 ${displayed?.total??'—'} <small>/ ${displayed?.maximum??score.maximum}</small></strong><span class="state">${score.retained_score?'新提交':''}${esc(scoreStatus[score.status]||score.status)}</span></div>${retainedScoreHTML(score)}${completed?`<div class="comparison-feedback">${source?`<p class="projection-caption">${source}</p>`:''}${strengths.length?`<h4>主要优点</h4><div class="projection-strength">${feedbackTextHTML(strengths[0].text)}</div>`:''}<h4>改进建议</h4>${suggestions.length?`<ol>${suggestions.map(i=>`<li>${feedbackTextHTML(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'已达到本环节要求，无需补充建议。':'暂无改进建议，可展开查看评分说明。'}</p>`}</div>`:`<p>${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}${details}${score.history?.length?`<details class="projection-details"><summary>查看分数变化</summary>${scoreHistoryHTML(score)}</details>`:''}</div>`;
 }
 function renderPresentationControls() {
   const chat=presentation.mode==='chat';
   $('#presentationMode').textContent=chat?'展示成果与评分':'展示小组与 AI 对话';
   $('#presentationMode').setAttribute('aria-pressed',String(chat));
   $('#presentationMode').classList.toggle('primary',chat);
-  if(S.content)$('#presentationTitle').textContent=chat?`环节 ${S.stage} · 小组与 AI 对话`:`环节 ${S.stage} · ${S.content.content.question}`;
-  $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（8 秒）';
+  if(S.content)$('#presentationTitle').textContent=`第 ${$('#presentationGroup').value||S.group||1} 组 · 环节 ${S.stage} · ${chat?'小组与 AI 对话':'成果展示'}`;
+  $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（20 秒）';
   $('#compareAuto').setAttribute('aria-pressed',String(presentation.auto));
   $('#compareAuto').classList.toggle('primary',presentation.auto);
-  $('#compareNext').disabled=S.lesson?.group_count<2;
-  $('#compareAuto').disabled=S.lesson?.group_count<2;
-  $('#compareStatus').textContent=presentation.auto?(presentation.loading?'自动切换中 · 正在读取…':'自动切换中 · 每 8 秒展示下一对小组'):'手动切换 · 到末组后循环展示';
+  for(const id of ['#comparePrevious','#compareNext','#compareAuto'])$(id).disabled=S.lesson?.group_count<2;
+  $('#compareStatus').textContent=presentation.auto?(presentation.loading?'自动切换中 · 正在读取…':'每 20 秒展示下一组'):'手动切换 · 首末组循环';
 }
 function schedulePresentation() {
   clearTimeout(presentation.timer); presentation.timer=null;
   if(presentation.auto && !presentation.loading && $('#presentationDialog').open) {
-    presentation.timer=setTimeout(()=>nextComparison().catch(e=>toast(e.message)),8000);
+    presentation.timer=setTimeout(()=>nextComparison().catch(e=>toast(e.message)),20000);
   }
+}
+function pausePresentationAuto() {
+  presentation.auto=false; renderPresentationControls(); schedulePresentation();
 }
 function togglePresentationAuto() {
   presentation.auto=!presentation.auto; renderPresentationControls(); schedulePresentation();
 }
-async function nextComparison() {
+async function nextComparison(direction=1) {
   if(!$('#presentationDialog').open || !S.lesson)return;
   const count=S.lesson.group_count;
-  for(const id of ['#compareLeft','#compareRight'])$(id).value=(Number($(id).value)-1+2)%count+1;
+  $('#presentationGroup').value=(Number($('#presentationGroup').value)-1+direction+count)%count+1;
   await compare();
 }
 function stopPresentation() {
@@ -682,7 +692,10 @@ $('#compareRefresh').addEventListener('click',()=>compare().catch(e=>toast(e.mes
 $('#compareNext').addEventListener('click',()=>nextComparison().catch(e=>toast(e.message)));
 $('#compareAuto').addEventListener('click',togglePresentationAuto);
 $('#presentationMode').addEventListener('click',()=>togglePresentationMode().catch(e=>toast(e.message)));
-['#compareLeft','#compareRight'].forEach(id=>$(id).addEventListener('change',()=>compare().catch(e=>toast(e.message))));
+$('#presentationGroup').addEventListener('change',()=>compare().catch(e=>toast(e.message)));
+$('#comparePrevious').addEventListener('click',()=>nextComparison(-1).catch(e=>toast(e.message)));
+$('#comparison').addEventListener('toggle',e=>{if(e.target.open)pausePresentationAuto();},true);
+$('#comparison').addEventListener('click',e=>{if(e.target.closest('a'))pausePresentationAuto();});
 $('#fullscreenButton').addEventListener('click',()=>toggleFullscreen($('#presentationSurface')));
 document.addEventListener('fullscreenchange',updateFullscreenButtons);
 $('#legacyButton').addEventListener('click',()=>legacy().catch(e=>toast(e.message)));$('#closeHistory').addEventListener('click',()=>$('#historyDialog').close());

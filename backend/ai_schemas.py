@@ -21,10 +21,11 @@ EXTRACTION_SCHEMA = object_schema({
 
 
 def grading_schema(rubric, sources):
-    feedback_item = object_schema({
-        'key': {'type': 'string', 'enum': [r[0] for r in rubric]},
-        'text': {'type': 'string', 'minLength': 1, 'maxLength': 240},
-    })
+    def feedback_item(limit):
+        return object_schema({
+            'key': {'type': 'string', 'enum': [r[0] for r in rubric]},
+            'text': {'type': 'string', 'minLength': 1, 'maxLength': limit},
+        })
     return object_schema({'items': {
         'type': 'array', 'minItems': len(rubric), 'maxItems': len(rubric),
         'items': object_schema({
@@ -35,6 +36,6 @@ def grading_schema(rubric, sources):
             'reason': {'type': 'string'},
         }),
     }, 'feedback': object_schema({
-        'strengths': {'type': 'array', 'items': feedback_item},
-        'improvements': {'type': 'array', 'maxItems': 2, 'items': feedback_item},
+        'strengths': {'type': 'array', 'items': feedback_item(40)},
+        'improvements': {'type': 'array', 'maxItems': 2, 'items': feedback_item(20)},
     })})

@@ -233,3 +233,68 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 #teacherSummaryBody{max-height:560px;overflow-y:auto;padding-right:8px}
 
 .mass-table-scroll{overflow-x:auto;margin:16px 0}.mass-table{width:100%;font-size:15px}.mass-table caption{text-align:left;font-weight:700;margin-bottom:10px}.mass-table th,.mass-table td{padding:12px 10px;text-align:left}.mass-table td strong{white-space:nowrap}
+
+/* Classroom projection: one group, equal space for work and feedback. */
+.feedback-long>summary{font:inherit;font-weight:400;padding:0;line-height:inherit}
+.feedback-long .feedback-expand{font-size:.85em;color:var(--blue);text-decoration:underline}
+.feedback-long[open]>summary .feedback-preview{display:none}
+.feedback-long[open]>summary .feedback-expand{font-size:0}
+.feedback-long[open]>summary .feedback-expand:after{content:'收起全文';font-size:16px}
+.feedback-long>p{font:inherit;line-height:inherit;margin:8px 0;white-space:pre-wrap}
+.single-projection{--projection-font:clamp(28px,2vw,36px)}
+.single-projection[open]{height:98dvh;max-height:98dvh;padding:16px}
+.single-projection .presentation-surface{flex:1;min-height:0}
+.single-projection .presentation-surface:fullscreen{padding:16px;height:100dvh;overflow:hidden}
+.single-projection .presentation-top{gap:12px;flex-wrap:wrap}
+.single-projection .presentation-top .eyebrow{display:none}
+.single-projection .presentation-top h2{font-size:28px;margin:0;line-height:1.35}
+.single-projection .compare-controls{margin:8px 0 12px;gap:8px 14px}
+.single-projection .compare-controls select{width:115px}
+.single-projection .comparison{flex:1;min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;overflow:hidden}
+.single-projection .comparison.is-chat{grid-template-columns:minmax(0,1fr)}
+.single-projection .comparison>.notice,.single-projection .comparison>.loading{grid-column:1/-1}
+.single-projection .comparison>section{min-height:0;height:auto;padding:18px;overflow:hidden;border-radius:12px}
+.single-projection .comparison-heading h3{font-size:28px;margin:0 0 6px;line-height:1.35}
+.single-projection .projection-review{background:#f3f7fc}
+.single-projection .comparison-work,.single-projection .projection-review-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;margin:0;padding:0 8px 8px 0}
+.single-projection .comparison-work,.single-projection .projection-review-scroll,
+.single-projection .comparison :is(p,li,dd,dt,summary,.answer-text,.projection-strength),
+.single-projection .comparison .comparison-feedback :is(p,li,summary){font-size:var(--projection-font);line-height:1.5;color:var(--ink)}
+.single-projection .comparison .projection-caption,.single-projection .comparison .feedback-version{font-size:20px;line-height:1.5;color:#4c6276;margin:4px 0 12px}
+.single-projection .comparison-fields{grid-template-columns:minmax(0,1fr);gap:18px;margin:0}
+.single-projection .comparison-field.is-short{grid-column:1/-1}
+.single-projection .comparison-fields dt{font-weight:600;margin-bottom:6px}
+.single-projection .comparison-fields dd{margin:0}
+.single-projection .comparison :is(.record-image,.assignment img,.comparison-chat img,.uploaded-answer img){display:block;width:100%;max-width:100%;max-height:none;height:auto;object-fit:contain}
+.single-projection .comparison-work a:has(img){display:block;cursor:zoom-in}
+.single-projection .comparison-score{max-height:none;overflow:visible;padding:0;border:0;background:transparent}
+.single-projection .comparison-score-heading{display:block;margin:0 0 12px}
+.single-projection .comparison-score-heading>strong{display:block;font-size:clamp(56px,4vw,72px);line-height:1.2;font-weight:700;white-space:normal}
+.single-projection .comparison-score-heading small{font-size:28px}
+.single-projection .comparison-score-heading .state{display:inline-block;font-size:18px;margin-top:6px}
+.single-projection .comparison-feedback{margin-top:12px;padding-top:12px}
+.single-projection .comparison-feedback h4{font-size:24px;margin:16px 0 8px;color:#365a79}
+.single-projection .comparison-feedback h4:first-child{margin-top:0}
+.single-projection .comparison-feedback ol{margin:0;padding-left:1.4em}
+.single-projection .comparison-feedback li+li{margin-top:12px}
+.single-projection .projection-details{margin-top:18px;border-top:1px solid #cedae7;padding-top:8px}
+.single-projection .projection-details>summary{font-size:22px}
+.single-projection .projection-details :is(h3,h4){font-size:26px}
+.single-projection .comparison .score-history :is(li,strong,span,small){font-size:24px}
+.single-projection .comparison table{width:100%;font-size:var(--projection-font)}
+.single-projection .comparison :is(td,th){font-size:var(--projection-font);padding:10px 8px}
+.single-projection .comparison-chat .chat-entry{margin:0 0 18px}
+.single-projection .comparison-chat .speaker{font-size:20px}
+.single-projection .feedback-long[open]>summary .feedback-expand:after{font-size:22px}
+@media(max-width:899px){
+  .single-projection[open]{overflow:auto;height:98dvh}
+  .single-projection .presentation-surface,.single-projection .presentation-surface:fullscreen{overflow:auto;flex:1}
+  .single-projection .comparison{flex:none;overflow:visible;grid-template-columns:minmax(0,1fr)}
+  .single-projection .comparison>section{height:auto;min-height:280px;max-height:none}
+  .single-projection .comparison-work,.single-projection .projection-review-scroll{flex:none;overflow:visible}
+}
+@media print{
+  .single-projection[open],.single-projection .presentation-surface{display:block;height:auto;overflow:visible}
+  .single-projection .comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
+  .single-projection .comparison>section,.single-projection .comparison-work,.single-projection .projection-review-scroll{height:auto;overflow:visible}
+}

@@ -211,7 +211,7 @@ test('inquiry histories show their own results and scores; stage one has no grad
   const a=setup();a.run('S.lesson.flow_version=3');
   assert.match(a.run("versionExtras({result_match:{version_id:'a',revision:1,status:'ready',matches:[{image:'/first.png',label:'处理',excerpt:'<script>不执行</script>'}],questions:[],uncovered:[]}})"),/first.png/);
   assert.doesNotMatch(a.run("matchHTML({status:'ready',revision:1,matches:[{image:'/first.png',label:'处理',excerpt:'<script>不执行</script>'}],questions:[],uncovered:[]})"),/<script>/);
-  assert.match(a.run('presentationScoreHTML({scores:{stages:[]}})'),/本部分不计分/);
+  assert.match(a.run('presentationScoreHTML({scores:{stages:[]}})'),/本环节不计分/);
   a.run('S.stage=2');
   assert.match(a.run("versionExtras({assessment:{status:'ready',total:70,maximum:100,items:[],feedback:null}})"),/70 \/ 100/);
 });
@@ -297,40 +297,44 @@ test('draft failure unlocks chat and retains the question and selected images',a
 function presentationSetup(count=8){
   const a=setup();
   a.run(`S.user={role:'teacher'};S.lesson.group_count=${count};S.lesson.flow_version=2;S.content.content.fields=[{key:'design',label:'实验设计'}]`);
-  a.el('#presentationDialog').open=true;a.el('#compareLeft').value=1;a.el('#compareRight').value=2;
+  a.el('#presentationDialog').open=true;a.el('#presentationGroup').value=1;
   return a;
 }
 function presentedWork(id,status='ready'){
-  return {work:{fields:{design:'尚未提交的修改'},file_ids:[]},versions:[{id:`v${id}`,fields:{design:`第 ${id} 组已提交的实验设计`},file_ids:[],updated:10}],files:[],scores:{stages:[
-    {stage:1,version_id:`v${id}`,status,total:15,maximum:20,items:[{key:'design',label:'实验设计',points:7,maximum:12,reason:'对照条件还需完善'}],feedback:{source:'ai',improvements:[{key:'design',text:`第 ${id} 组请统一观察时间。`}]}},
+  return {work:{fields:{design:'尚未提交的修改'},file_ids:[]},versions:[{id:`v${id}`,revision:1,fields:{design:`第 ${id} 组已提交的实验设计`},file_ids:[],updated:10}],files:[],scores:{stages:[
+    {stage:1,version_id:`v${id}`,revision:1,status,total:15,maximum:20,items:[{key:'design',label:'实验设计',points:7,maximum:12,reason:'对照条件还需完善'}],feedback:{source:'ai',strengths:[{key:'design',text:'明确了观察指标'},{key:'design',text:'已有对照思路'}],improvements:[{key:'design',text:`第 ${id} 组请统一观察时间。`}]}},
     {stage:2,version_id:'other-stage',status:'ready',total:30,maximum:30,items:[],feedback:{improvements:[{text:'不属于当前环节的建议'}]}}
   ]}};
 }
-function replyPair(a,offset=0,ids=[1,2]){ids.forEach((id,i)=>a.calls[offset+i].reply(presentedWork(id)));}
 
-test('teacher details and projection keep the previous mark and show numeric history during grading',()=>{
+test('teacher details and projection retain a labelled previous mark while grading',()=>{
   const a=presentationSetup(), w=presentedWork(1,'processing');
   const previous={version_id:'old',submission_number:1,total:12,maximum:20,status:'ready'};
   Object.assign(w.scores.stages[0],{total:null,retained_score:previous,history:[previous]});
   Object.assign(w.scores,{total:42,graded:2});
   const projection=a.run(`presentationScoreHTML(${JSON.stringify(w)})`);
   const teacher=a.run(`scoreHTML(${JSON.stringify(w.scores)},true)`);
-  assert.match(projection,/本环节 12/);
-  assert.match(projection,/新提交评分中/);
+  assert.match(projection,/本环节 12/);assert.match(projection,/新提交评分中/);
   for(const html of [projection,teacher]){
     assert.match(html,/当前保留第 1 次提交的得分/);
     assert.match(html,/分数变化.*第 1 次.*12 <small>\/ 20/s);
     assert.doesNotMatch(html,/第 1 组请统一观察时间/);
   }
+  assert.doesNotMatch(projection,/<details[^>]*open/);
   assert.match(teacher,/data-score-retry="v1"/);
 });
 
-test('presentation pairs current-stage score and advice with the submitted work, including zero and pending scores',async()=>{
-  const a=presentationSetup();const pending=a.run('compare()');replyPair(a);await pending;
+test('projection fetches only one group and separates submitted work from score and advice',async()=>{
+  const a=presentationSetup(),pending=a.run('compare()');
+  assert.equal(a.calls.length,1);assert.match(a.calls[0].url,/groups\/1\/stages\/1$/);
+  a.calls[0].reply(presentedWork(1));await pending;
   const html=a.el('#comparison').innerHTML;
-  assert.match(html,/本环节 15/);assert.match(html,/第 1 组请统一观察时间/);assert.match(html,/第 2 组已提交的实验设计/);
-  assert.doesNotMatch(html,/不属于当前环节|尚未提交的修改/);
-  for(const state of ['pending','processing','failed','model_submitted']){
+  assert.match(html,/第 1 组成果/);assert.match(html,/第 1 组评分与建议/);
+  assert.ok(html.indexOf('第 1 组已提交的实验设计')<html.indexOf('第 1 组评分与建议'));
+  assert.match(html,/本环节 15/);assert.match(html,/主要优点/);assert.match(html,/第 1 组请统一观察时间/);
+  assert.match(html,/<details class="projection-details">.*其他优点/s);
+  assert.doesNotMatch(html,/不属于当前环节|尚未提交的修改|第 2 组/);
+  for(const state of ['pending','processing','failed','model_submitted','needs_clarification']){
     const w=presentedWork(1,state);
     const result=a.run(`presentationScoreHTML(${JSON.stringify(w)})`);
     assert.doesNotMatch(result,/本环节 15|第 1 组请统一观察时间/);
@@ -341,77 +345,99 @@ test('presentation pairs current-stage score and advice with the submitted work,
   assert.doesNotMatch(a.run(`presentationScoreHTML(${JSON.stringify(zero)})`),/本环节 0|第 1 组请统一观察时间/);
 });
 
-test('next pair loops through all groups and a late response cannot overwrite a newer pair',async()=>{
-  const a=presentationSetup();const first=a.run('compare()');const next=a.run('nextComparison()');
-  assert.equal(a.el('#compareLeft').value,3);assert.equal(a.el('#compareRight').value,4);
-  replyPair(a,2,[3,4]);await next;replyPair(a);await first;
-  assert.match(a.el('#comparison').innerHTML,/第 3 组成果与评分/);assert.doesNotMatch(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
-  for(const [offset,ids] of [[4,[5,6]],[6,[7,8]],[8,[1,2]]]){
-    const p=a.run('nextComparison()');replyPair(a,offset,ids);await p;
-    assert.equal(a.el('#compareLeft').value,ids[0]);assert.equal(a.el('#compareRight').value,ids[1]);
-  }
-  const legacy=presentationSetup(6);legacy.el('#compareLeft').value=5;legacy.el('#compareRight').value=6;
-  const p=legacy.run('nextComparison()');replyPair(legacy);await p;
-  assert.equal(legacy.el('#compareLeft').value,1);assert.equal(legacy.el('#compareRight').value,2);
+test('next and previous wrap all groups; late data cannot replace the current group',async()=>{
+  const a=presentationSetup(),first=a.run('compare()'),next=a.run('nextComparison()');
+  assert.equal(a.el('#presentationGroup').value,2);
+  a.calls[1].reply(presentedWork(2));await next;a.calls[0].reply(presentedWork(1));await first;
+  assert.match(a.el('#comparison').innerHTML,/第 2 组成果/);assert.doesNotMatch(a.el('#comparison').innerHTML,/第 1 组成果/);
+  a.el('#presentationGroup').value=8;
+  const wrap=a.run('nextComparison()');assert.equal(a.el('#presentationGroup').value,1);a.calls[2].reply(presentedWork(1));await wrap;
+  const previous=a.run('nextComparison(-1)');assert.equal(a.el('#presentationGroup').value,8);a.calls[3].reply(presentedWork(8));await previous;
+  const legacy=presentationSetup(6);legacy.el('#presentationGroup').value=6;
+  const p=legacy.run('nextComparison()');legacy.calls[0].reply(presentedWork(1));await p;
+  assert.equal(legacy.el('#presentationGroup').value,1);
 });
 
-test('automatic switching waits eight seconds per loaded pair, supports pause, and stops on close',async()=>{
+test('automatic switching waits twenty seconds; details and close pause rotation',async()=>{
   const a=presentationSetup();a.run('togglePresentationAuto()');
-  assert.equal(a.timers.size,1);let timer=[...a.timers.values()][0];assert.equal(timer.ms,8000);
-  assert.equal(a.calls.length,0);
-  const p=timer.fn();assert.equal(a.el('#compareLeft').value,3);assert.equal(a.timers.size,0);
-  a.run('togglePresentationAuto();togglePresentationAuto()');assert.equal(a.timers.size,0);
-  replyPair(a,0,[3,4]);await p;
-  assert.equal(a.timers.size,1);assert.equal([...a.timers.values()][0].ms,8000);
-  a.run('togglePresentationAuto()');assert.equal(a.timers.size,0);
+  assert.equal(a.timers.size,1);let timer=[...a.timers.values()][0];assert.equal(timer.ms,20000);
+  const p=timer.fn();assert.equal(a.el('#presentationGroup').value,2);assert.equal(a.timers.size,0);
+  a.calls[0].reply(presentedWork(2));await p;assert.equal(a.timers.size,1);
+  a.run('pausePresentationAuto()');assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);
   a.run('togglePresentationAuto()');const late=[...a.timers.values()][0].fn();
   a.run('closePresentation()');assert.equal(a.timers.size,0);assert.equal(a.el('#presentationDialog').open,false);
-  const html=a.el('#comparison').innerHTML;replyPair(a,2,[5,6]);await late;
-  assert.equal(a.el('#comparison').innerHTML,html);assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);
+  const html=a.el('#comparison').innerHTML;a.calls[1].reply(presentedWork(3));await late;
+  assert.equal(a.el('#comparison').innerHTML,html);assert.equal(a.timers.size,0);
 });
 
-test('a failed pair pauses auto switching and manual refresh recovers',async()=>{
+test('a failed group pauses rotation and manual refresh recovers',async()=>{
   const a=presentationSetup();a.run('togglePresentationAuto()');
-  const p=a.run('compare()');a.calls[0].reply({detail:'连接失败'},503);a.calls[1].reply(presentedWork(2));
+  const p=a.run('compare()');a.calls[0].reply({detail:'连接失败'},503);
   await assert.rejects(p,/连接失败/);assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);
   assert.match(a.el('#comparison').innerHTML,/读取失败/);
-  const retry=a.run('compare()');replyPair(a,2);await retry;
-  assert.match(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
+  const retry=a.run('compare()');a.calls[1].reply(presentedWork(1));await retry;
+  assert.match(a.el('#comparison').innerHTML,/第 1 组成果/);
 });
 
-test('conversation display fetches current-stage chats, escapes text and preserves pair selection',async()=>{
-  const a=presentationSetup();
-  a.run("S.stage=2;S.groups=[{id:1,chats:[{question:'旧缓存对话'}]}]");
+test('chat projection displays only the selected group and preserves selection across modes',async()=>{
+  const a=presentationSetup();a.run("S.stage=2;S.groups=[{id:1,chats:[{question:'旧缓存对话'}]}]");
   const pending=a.run('togglePresentationMode()');
-  assert.match(a.calls[2].url,/groups\?stage=2$/);
-  replyPair(a);
-  a.calls[2].reply([{id:1,chats:[{author:'第 1 组',question:'<script>比较两侧</script>',answer:'用什么指标判断？',created:12,images:[{id:'photo',name:'设计照片'}]}]},{id:2,chats:[]}]);
+  assert.equal(a.calls.length,2);assert.match(a.calls[1].url,/groups\?stage=2$/);
+  a.calls[0].reply(presentedWork(1));
+  a.calls[1].reply([{id:1,chats:[{author:'第 1 组',question:'<script>比较两侧</script>',answer:'用什么指标判断？',created:12,images:[{id:'photo',name:'设计照片'}]}]},{id:2,chats:[{question:'别组对话'}]}]);
   await pending;
   const html=a.el('#comparison').innerHTML;
-  assert.match(html,/第 1 组与 AI 对话/);assert.match(html,/&lt;script&gt;/);
-  assert.match(html,/用什么指标判断/);assert.match(html,/files\/photo\?preview=true/);
-  assert.match(html,/本组在当前环节还没有与 AI 的对话/);
-  assert.doesNotMatch(html,/<script>|旧缓存对话|comparison-score|尚未提交的修改/);
-  assert.equal(a.el('#compareLeft').value,1);assert.equal(a.el('#compareRight').value,2);
-  assert.equal(a.el('#presentationMode').textContent,'展示成果与评分');
-  const back=a.run('togglePresentationMode()');replyPair(a,3);await back;
-  assert.match(a.el('#comparison').innerHTML,/第 1 组成果与评分/);
+  assert.match(html,/第 1 组与 AI 对话/);assert.match(html,/&lt;script&gt;/);assert.match(html,/用什么指标判断/);
+  assert.match(html,/files\/photo\?preview=true/);
+  assert.doesNotMatch(html,/<script>|旧缓存对话|别组对话|comparison-score|尚未提交的修改/);
+  assert.equal(a.el('#presentationGroup').value,1);
+  const back=a.run('togglePresentationMode()');a.calls[2].reply(presentedWork(1));await back;
+  assert.match(a.el('#comparison').innerHTML,/第 1 组成果/);
 });
 
-test('late conversation responses cannot replace work mode and auto rotation keeps conversation mode',async()=>{
-  const a=presentationSetup();
-  const old=a.run('togglePresentationMode()'),current=a.run('togglePresentationMode()');
-  replyPair(a,3);await current;replyPair(a);a.calls[2].reply([{id:1,chats:[{question:'迟到的对话',answer:'迟到回复'}]}]);await old;
+test('late chat responses cannot replace work mode and rotation preserves chat mode',async()=>{
+  const a=presentationSetup(),old=a.run('togglePresentationMode()'),current=a.run('togglePresentationMode()');
+  a.calls[2].reply(presentedWork(1));await current;
+  a.calls[0].reply(presentedWork(1));a.calls[1].reply([{id:1,chats:[{question:'迟到的对话',answer:'迟到回复'}]}]);await old;
   assert.doesNotMatch(a.el('#comparison').innerHTML,/迟到/);
   a.run("presentation.mode='chat';togglePresentationAuto()");
   const pending=[...a.timers.values()][0].fn();
-  replyPair(a,5,[3,4]);a.calls[7].reply([{id:3,chats:[{question:'第三组的问题',answer:'第三组的回复'}]},{id:4,chats:[]}]);await pending;
+  a.calls[3].reply(presentedWork(2));a.calls[4].reply([{id:2,chats:[{question:'第二组的问题',answer:'第二组的回复'}]}]);await pending;
   assert.equal(a.run('presentation.mode'),'chat');assert.equal(a.timers.size,1);
-  assert.match(a.el('#comparison').innerHTML,/第 3 组与 AI 对话/);
-  assert.match(a.el('#comparison').innerHTML,/第三组的问题/);
+  assert.match(a.el('#comparison').innerHTML,/第 2 组与 AI 对话/);
 });
 
-test('stage-one conversation projection includes submitted images and result replies in order',()=>{
+test('projection never presents a draft as submitted work or invents missing praise',async()=>{
+  const a=presentationSetup(),w=presentedWork(1);w.versions=[];
+  const pending=a.run('compare()');a.calls[0].reply(w);await pending;
+  assert.match(a.el('#comparison').innerHTML,/尚未提交/);
+  assert.doesNotMatch(a.el('#comparison').innerHTML,/尚未提交的修改|本环节 15/);
+  const ready=presentedWork(1);ready.scores.stages[0].feedback.strengths=[];
+  assert.doesNotMatch(a.run(`presentationScoreHTML(${JSON.stringify(ready)})`),/主要优点/);
+  ready.scores.stages=[];
+  assert.match(a.run(`presentationScoreHTML(${JSON.stringify(ready)})`),/更新展示/);
+});
+
+test('stage one separates submitted design from the unscored result',async()=>{
+  const a=presentationSetup();a.run("S.lesson.flow_version=3;matchHTML=m=>m?'对应实验结果图':''");
+  const w=presentedWork(1);w.versions[0].result_match={status:'ready'};
+  const pending=a.run('compare()');a.calls[0].reply(w);await pending;
+  const html=a.el('#comparison').innerHTML;
+  assert.match(html,/本环节不计分/);assert.match(html,/对应实验结果图/);
+  assert.ok(html.indexOf('对应实验结果图')>html.indexOf('projection-review'));
+  assert.doesNotMatch(html,/本环节 15|第 1 组请统一观察时间/);
+});
+
+test('historical feedback previews fifty Unicode characters and retains escaped full text',()=>{
+  const a=presentationSetup(),text='🧪'.repeat(51)+'<script>旧建议</script>';
+  const html=a.run(`feedbackTextHTML(${JSON.stringify(text)})`);
+  assert.match(html,/展开全文/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|<details[^>]*open/);
+  assert.ok(html.includes('🧪'.repeat(50)+'…'));
+  assert.ok(html.includes('🧪'.repeat(51)));
+  assert.equal(a.run("feedbackTextHTML('请补充对照组。')"),'请补充对照组。');
+});
+
+test('stage-one conversation projection includes submitted photos and result replies in order',()=>{
   const a=presentationSetup();a.run('S.lesson.flow_version=3');
   const work={versions:[{id:'submission',fields:{design:'先前实验思路'},file_ids:['photo'],updated:10,result_match:{status:'ready',matches:[{label:'结果图',image:'/result.png'}],questions:[],uncovered:[]}}],files:[{id:'photo',name:'实验照片',preview:true}]};
   const group={chats:[{author:'第 1 组',question:'之后的追问',answer:'AI的追问回复',created:20}]};
@@ -419,6 +445,7 @@ test('stage-one conversation projection includes submitted images and result rep
   assert.ok(html.indexOf('先前实验思路')<html.indexOf('之后的追问'));
   assert.match(html,/\/result.png/);assert.match(html,/files\/photo\?preview=true/);
 });
+
 
 test('summary fullscreen updates together with the teacher panel and hides stale deficiencies',async()=>{
   const a=presentationSetup();a.run('S.stage=2;S.lesson.flow_version=3');
@@ -472,4 +499,13 @@ test('grape stage two retains the student score bubble and revision advice',()=>
     renderStudentScore({total:80,graded:1,maximum:100,stages:[{stage:2,version_id:'v',revision:1,status:'ready',total:80,maximum:100,items:[],history:[],feedback:{source:'ai',strengths:[{text:'阶段明确'}],improvements:[{text:'补充品质证据'}]}}]});`);
   assert.equal(h.el('#scoreBubblePoints').textContent,'80 / 100');
   assert.match(h.el('#studentScore').innerHTML,/补充品质证据/);
+});
+
+test('photo-only projection omits empty text fields and partial historical marks do not claim full credit',()=>{
+  const a=presentationSetup();
+  assert.doesNotMatch(a.run("fieldsHTML({design:''},true)"),/尚未填写|实验设计/);
+  assert.match(a.run("fieldsHTML({design:''})"),/尚未填写/);
+  const html=a.run("studentFeedbackHTML({total:5,maximum:10,feedback:{strengths:[],improvements:[]}})");
+  assert.doesNotMatch(html,/已达到本环节要求/);
+  assert.match(html,/暂无改进建议/);
 });

@@ -15,13 +15,19 @@ function setScoreBubbleExpanded(expanded) {
   show('#studentScore', expanded);
   show('#scoreBubbleActions', expanded && bubble.dataset.editable === 'true');
 }
+function feedbackTextHTML(text) {
+  const value=String(text||''), characters=Array.from(value);
+  if(characters.length<=50)return esc(value);
+  return `<details class="feedback-long"><summary><span class="feedback-preview">${esc(characters.slice(0,50).join(''))}… </span><span class="feedback-expand">展开全文</span></summary><p>${esc(value)}</p></details>`;
+}
 function studentFeedbackHTML(score) {
   const feedback = score.feedback;
   if (!feedback) return '';
-  const list = entries => entries.map(i => `<li>${esc(i.text)}</li>`).join('');
+  const strengths=feedback.strengths||[], improvements=feedback.improvements||[];
+  const list = entries => entries.map(i => `<li>${feedbackTextHTML(i.text)}</li>`).join('');
   return `${feedback.source === 'score_summary' ? '<p class="fine">这份记录暂无详细 AI 评语，以下为按得分整理的提示；再次提交后可获得具体反馈。</p>' : feedback.source === 'teacher_review' ? '<p class="fine">分数已由教师复核，以下提示按复核后的分数整理。</p>' : ''}
-    ${feedback.strengths.length ? `<section class="feedback-strengths"><h3>做得好的地方</h3><ul>${list(feedback.strengths)}</ul></section>` : '<p class="fine">先完善下面这一小步，让你们的思路更清楚。</p>'}
-    ${feedback.improvements.length ? `<section class="feedback-improvements"><h3>这次先改 ${Math.min(feedback.improvements.length, 2)} 点</h3><ol>${list(feedback.improvements.slice(0, 2))}</ol></section>` : '<p class="feedback-complete">本次提交已达到本环节要求，保留这些有依据的表达。</p>'}`;
+    ${strengths.length ? `<section class="feedback-strengths"><h3>做得好的地方</h3><ul>${list(strengths)}</ul></section>` : '<p class="fine">先完善下面这一小步，让你们的思路更清楚。</p>'}
+    ${improvements.length ? `<section class="feedback-improvements"><h3>这次先改 ${Math.min(improvements.length, 2)} 点</h3><ol>${list(improvements.slice(0, 2))}</ol></section>` : `<p class="feedback-complete">${score.total===score.maximum?'本次提交已达到本环节要求，保留这些有依据的表达。':'暂无改进建议，可查看分项得分。'}</p>`}`;
 }
 function completedScore(score) {
   return !!score && ['ready', 'corrected'].includes(score.status) && Number.isFinite(score.total);

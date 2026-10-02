@@ -337,9 +337,9 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
         schema = GUIDANCE_SCHEMA if current_lesson and lesson_api.config(current_lesson)[0] in (2, 3, 4) else None
         grape_results = current_lesson and lesson_api.config(current_lesson)[0] == 4 and body.stage == 1
         if grape_results:
-            schema = lesson_grape.CHAT_SCHEMA
+            schema = lesson_grape.MATCH_SCHEMA
         direct = lesson_grape.direct_matches(question) if grape_results and not image_records else None
-        answer = (json.dumps(dict(**direct, case_ids=[], text=''), ensure_ascii=False) if direct is not None
+        answer = (json.dumps(direct, ensure_ascii=False) if direct is not None
                   else await call_ai(messages, response_schema=schema))
         session.expire_all()
         if current_lesson:
@@ -348,7 +348,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 try:
                     answer = lesson_grape.chat_answer(lesson_v2.parse_json(answer))
                 except (ValueError, TypeError, KeyError):
-                    raise HTTPException(502, '案例或实验处理识别暂未完成，请重试') from None
+                    raise HTTPException(502, '实验处理识别暂未完成，请重试') from None
             elif lesson_api.config(current_lesson)[0] in (2, 3, 4):
                 answer=lesson_api.extensions.finish_guidance(session,body.lesson_id,user.group_id,body.stage,answer)
             answer = lesson_api.guard_answer(answer, current_lesson, body.stage)

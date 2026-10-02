@@ -80,8 +80,8 @@ def test_explicit_chat_and_submission_skip_ai_preserve_history_and_deduplicate(e
 
 def test_photos_and_complex_treatments_still_use_ai(env, monkeypatch):
     module, c = env; lid = start(c, monkeypatch); student(c, 1)
-    responses = [dict(**matching('cppu'), case_ids=[], text=''),
-                 dict(**matching(questions=['请说明葡萄各组如何处理']), case_ids=[], text=''),
+    responses = [matching('cppu'),
+                 matching(questions=['请说明葡萄各组如何处理']),
                  matching('cppu')]
     calls = mock(module, monkeypatch, lambda _: responses.pop(0))
     photo = c.post(f'/api/classroom/files?lesson_id={lid}&stage=1', files={
@@ -106,7 +106,9 @@ def scoring(readable=True, evidence='field:design', points=(10, 15, 15), control
 def test_default_grape_stages_and_no_early_data(env, monkeypatch):
     _, c = env; lid = start(c, monkeypatch); student(c, 8)
     stage = c.get(f'/api/classroom/lessons/{lid}/stages/1').json()
-    assert len(stage['stages']) == 2 and '案例' in stage['content']['title']
+    assert len(stage['stages']) == 2 and stage['content']['title'] == '实验设计与实验数据'
+    assert stage['content']['prompts'] == []
+    assert '案例' not in stage['content']['task'] + stage['opener']
     assert '170' not in json.dumps(stage) and '320' not in json.dumps(stage)
     assert c.get(f'/api/classroom/lessons/{lid}/stages/2').status_code == 403
     assert c.get(f'/api/classroom/lessons/{lid}/teaching-guide').status_code == 403
@@ -133,21 +135,30 @@ def test_only_matched_masses_are_server_values_and_history_is_preserved(env, mon
     assert c.get(f'/api/classroom/lessons/{lid}/groups/1/stages/1').status_code == 404
 
 
-def test_cases_and_results_work_in_chat_without_fabricated_values(env, monkeypatch):
+def test_chat_requests_require_design_and_return_only_matched_results(env, monkeypatch):
     module, c = env; lid = start(c, monkeypatch); student(c, 1)
-    replies = [dict(**matching(), case_ids=['cytokinin'], text='虚构数值999克'),
-               dict(**matching('ga3', 'cppu', questions=['是否还加入其他药剂？']), case_ids=[], text='应该返回999克')]
+    replies = [matching(), matching(),
+               matching('cppu', questions=['是否还加入其他药剂？']), matching()]
     calls = mock(module, monkeypatch, lambda _: replies.pop(0))
-    answer = chat(c, lid, '请给我细胞分裂素的案例')
+    for message in ['请给我细胞分裂素的案例', '请给我实验数据']:
+        answer = chat(c, lid, message)
+        assert answer.status_code == 201, answer.text
+        assert answer.json()['answer'] == '请先提供本组的实验设计，写明各实验组分别用什么处理，也可拍照提交。'
+    properties = calls[0]['response_format']['json_schema']['schema']['properties']
+    assert set(properties) == {'readable', 'matches', 'questions', 'uncovered'}
+    assert '不提供激素案例' in calls[0]['messages'][0]['content']
+    answer = chat(c, lid, '加入CPPU，请给我案例')
     assert answer.status_code == 201, answer.text
-    assert grape.CASES['cytokinin'][1] in answer.json()['answer']
-    assert '999' not in answer.json()['answer'] and '生长素案例' not in answer.json()['answer']
+    assert answer.json()['answer'] == '对应处理的百粒质量：\nCPPU：300 ± 2.8 g'
     answer = chat(c, lid, '两组分别用GA3和CPPU处理')
     assert answer.status_code == 201, answer.text
     assert '225 ± 2.8 g' in answer.json()['answer'] and '300 ± 2.8 g' in answer.json()['answer']
     assert '320' not in answer.json()['answer'] and '999' not in answer.json()['answer']
     assert answer.json()['answer'] == '对应处理的百粒质量：\nGA₃：225 ± 2.8 g\nCPPU：300 ± 2.8 g'
-    assert 'case_ids' in calls[0]['response_format']['json_schema']['schema']['properties']
+    answer = chat(c, lid, '再给我生长素的案例')
+    assert answer.status_code == 201, answer.text
+    assert '请先提供本组的实验设计' in answer.json()['answer']
+    assert 'g' not in answer.json()['answer'] and '案例' not in answer.json()['answer']
 
 
 def test_unknown_and_unreadable_treatments_do_not_gain_results(env, monkeypatch):

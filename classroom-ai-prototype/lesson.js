@@ -124,7 +124,7 @@ function renderFrame() {
   $('#questionTitle').textContent=content.question;
   $('#teacherSummaryTitle').textContent=$('#summaryPresentationTitle').textContent=isGrape()?'增产方案问题智能汇总':'实验设计问题智能汇总';
   $('#chatSubmit').textContent=isGrape()?(S.stage===1?'获取百粒质量':'提交方案并评分'):'提交本组成果';
-  $('#chatInput').placeholder=isGrape()&&S.stage===1?'索取激素案例，或输入各实验组的处理……':'指出你们最想讨论的一个问题……';
+  $('#chatInput').placeholder=isGrape()&&S.stage===1?'输入本组实验设计，写明各实验组的处理……':'指出你们最想讨论的一个问题……';
   show('#lessonReadOnly',S.lesson.status==='archived');
   $('#groupBadge').textContent=isTeacher()?'教师观察台':`第 ${S.user.groupId} 组`;
   $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes?`${s.minutes} 分钟`:'教师推进'}${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');

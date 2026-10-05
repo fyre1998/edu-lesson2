@@ -21,6 +21,7 @@ function setup(scriptURL){
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'lesson-widgets.js'),'utf8'),context);
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
   vm.runInContext(source.slice(source.indexOf('const camera='),source.indexOf("\n$('#loginGroup')")),context);
+  vm.runInContext(source.slice(source.indexOf("$('#workFiles').addEventListener"),source.indexOf("\n$('#chatForm').addEventListener")),context);
   vm.runInContext(source.slice(source.indexOf("$('#chatForm').addEventListener"),source.indexOf("$('#quickPrompts').addEventListener")),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
   return{calls,fields,local,el,timers,camera:cameraOptions,run:code=>vm.runInContext(code,context)};
@@ -109,6 +110,95 @@ test('automatic photo submission validates image count and total size before upl
   a.run("S.work.work.file_ids=['large'];S.work.files=[{id:'large',size:20*1024*1024}]");
   assert.equal(await a.camera.onConfirm(photo()),false);assert.match(a.el('#toast').textContent,/合计超过20 MB/);
   assert.equal(a.calls.length,0);
+});
+function revisedPhotoSetup(count=1){
+  const a=photoSetup(),files=Array.from({length:count},(_,i)=>({...storedPhoto,id:'old-'+i,size:20*1024*1024}));
+  const previous={id:'previous',revision:1,updated:10,fields:{design:'上次方案'},file_ids:files.map(f=>f.id)};
+  a.run(`S.lesson.flow_version=5;S.work.files=${JSON.stringify(files)};S.work.versions=[${JSON.stringify(previous)}];S.work.work.file_ids=${JSON.stringify(previous.file_ids)};`);
+  return a;
+}
+
+for(const flow of [4,5])for(const stage of [1,2])test(`grape flow ${flow} stage ${stage} submits the replacement photo inside the lesson 2 path`,async()=>{
+  const a=setup('https://lsclass.top/lesson/paths.js');
+  a.run(`S.lesson.flow_version=${flow};S.stage=${stage};S.edit=S.savedEdit=0;S.work.files=[{id:'old',name:'旧方案.jpg',size:10,preview:true}];S.work.work.file_ids=['old'];S.work.versions=[{id:'old-version',revision:1,updated:10,fields:{design:'旧方案'},file_ids:['old']}];`);
+  const pending=a.camera.onConfirm(photo());
+  assert.equal(a.calls[0].url,`/lesson/api/classroom/files?lesson_id=lesson&stage=${stage}`);
+  a.calls[0].reply(storedPhoto,201);await tick();
+  assert.equal(a.calls[1].url,`/lesson/api/classroom/lessons/lesson/stages/${stage}/submissions`);
+  assert.deepEqual(a.calls[1].body.file_ids,['photo-1']);
+  a.calls[1].reply({revision:2,updated:20,submission_id:'v1'},201);await tick();
+  a.calls[2].reply(photoWork());assert.equal(await pending,true);
+});
+
+test('new grape uploads replace previous attachments once and append within the same draft',async()=>{
+  const a=revisedPhotoSetup(),pending=a.run("uploadFiles([new Blob(['one']),new Blob(['two'])])");
+  assert.deepEqual([...a.run('S.work.work.file_ids')],['old-0']);
+  assert.match(a.el('#workFiles').innerHTML,/data-attach="old-0"[^>]*disabled/);
+  a.el('#workFiles').listeners.click({target:{closest:selector=>selector==='[data-attach]'?{dataset:{attach:'old-0'}}:null}});
+  assert.deepEqual([...a.run('S.work.work.file_ids')],['old-0']);
+  a.calls[0].reply(storedPhoto,201);await tick();
+  a.calls[1].reply({...storedPhoto,id:'photo-2'},201);await tick();
+  assert.deepEqual(a.calls[2].body.file_ids,['photo-1','photo-2']);
+  a.calls[2].reply({revision:2,updated:20});assert.equal(await pending,true);
+  const next=a.run("uploadFiles([new Blob(['three'])])");
+  a.calls[3].reply({...storedPhoto,id:'photo-3'},201);await tick();
+  assert.deepEqual(a.calls[4].body.file_ids,['photo-1','photo-2','photo-3']);
+  a.calls[4].reply({revision:3,updated:30});assert.equal(await next,true);
+  assert.deepEqual([...a.run('S.work.versions[0].file_ids')],['old-0']);
+  assert.deepEqual([...a.run('S.work.files.map(f=>f.id)')],['old-0','photo-1','photo-2','photo-3']);
+  assert.doesNotMatch(a.el('#workFiles').innerHTML,/data-attach="old-0"[^>]*disabled/);
+});
+
+test('grape camera submits only the new photo even when the previous submission filled limits',async()=>{
+  const a=revisedPhotoSetup(8),pending=a.camera.onConfirm(photo());
+  assert.equal(a.calls.length,1);
+  a.calls[0].reply(storedPhoto,201);await tick();
+  assert.match(a.calls[1].url,/\/submissions$/);
+  assert.deepEqual(a.calls[1].body.file_ids,['photo-1']);
+  a.calls[1].reply({revision:2,updated:20,submission_id:'v1'},201);await tick();
+  a.calls[2].reply(photoWork());assert.equal(await pending,true);
+});
+
+test('failed or late grape uploads preserve the previous attachment selection',async()=>{
+  for(const failure of ['validation','upload','late']){
+    const a=revisedPhotoSetup();
+    const pending=failure==='validation'?a.run("uploadFiles([{size:21*1024*1024,type:'image/jpeg'}],{submitToAI:true})"):a.camera.onConfirm(photo());
+    if(failure==='upload')a.calls[0].reply({detail:'上传失败'},503);
+    if(failure==='late'){a.run('S.seq++;S.stage=2');a.calls[0].reply(storedPhoto,201);}
+    assert.equal(await pending,false);
+    assert.deepEqual([...a.run('S.work.work.file_ids')],['old-0']);
+    assert.equal(a.calls.filter(c=>c.url.endsWith('/submissions')).length,0);
+  }
+});
+
+test('a partial batch failure keeps the new draft photos and a retry appends without the old ones',async()=>{
+  const a=revisedPhotoSetup(),pending=a.run("uploadFiles([new Blob(['one']),new Blob(['two'])])");
+  a.calls[0].reply(storedPhoto,201);await tick();a.calls[1].reply({detail:'上传失败'},503);
+  assert.equal(await pending,false);assert.deepEqual([...a.run('S.work.work.file_ids')],['photo-1']);
+  const retry=a.run("uploadFiles([new Blob(['two'])])");
+  a.calls[2].reply({...storedPhoto,id:'photo-2'},201);await tick();
+  assert.deepEqual(a.calls[3].body.file_ids,['photo-1','photo-2']);
+  a.calls[3].reply({revision:2,updated:20});assert.equal(await retry,true);
+});
+
+test('uploads retain a manually edited selection and retain legacy lesson behavior',async()=>{
+  for(const legacy of [false,true]){
+    const a=revisedPhotoSetup(2);
+    a.run(legacy?'S.lesson.flow_version=3':"S.work.work.file_ids=['old-1']");
+    const pending=a.run("uploadFiles([new Blob(['one'])])");
+    a.calls[0].reply(storedPhoto,201);await tick();
+    assert.deepEqual(a.calls[1].body.file_ids,legacy?['old-0','old-1','photo-1']:['old-1','photo-1']);
+    a.calls[1].reply({revision:2,updated:20});assert.equal(await pending,true);
+  }
+});
+
+test('text-only revisions keep selected photos without affecting previous submissions',async()=>{
+  const a=revisedPhotoSetup();a.fields[0].value='补充本次条件';
+  const pending=a.run('saveWork(true)');await tick();
+  assert.deepEqual(a.calls[0].body.file_ids,['old-0']);
+  a.calls[0].reply({revision:2,updated:20,submission_id:'v2'},201);await tick();
+  a.calls[1].reply({detail:'同步失败'},503);assert.equal(await pending,true);
+  assert.deepEqual([...a.run('S.work.versions[0].file_ids')],['old-0']);
 });
 test('teacher summary escapes evidence and hides stale issues',()=>{
   const a=setup();

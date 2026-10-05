@@ -152,7 +152,7 @@ function renderStudent() {
   $('#workFields').classList.toggle('location-fields',S.lesson.flow_version===2&&S.stage===1);
   show('#generalAttachments',!isModel());
   $('#fileInput').accept=isInquiry()?'.png,.jpg,.jpeg,.webp':'.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xlsx,.csv,.txt,.md';
-  $('#attachmentHint').textContent=isInquiry()?'拍照后确认即可自动交给 AI；选择文件上传后请点击提交。单份最大 20 MB。':'纸质方案或解释图可拍照提交。单份最大 20 MB。';
+  $('#attachmentHint').textContent=isGrape()?'新一轮上传默认替换上一版照片，提交前可连续添加多张。旧图仍保留，可重新点击“附到成果”。拍照确认后自动提交，选择文件后请点击提交。':isInquiry()?'拍照后确认即可自动交给 AI；选择文件上传后请点击提交。单份最大 20 MB。':'纸质方案或解释图可拍照提交。单份最大 20 MB。';
   $('#saveStatus').textContent=S.work.work.updated?'已保存 · '+stamp(S.work.work.updated):'草稿自动保存';
   renderExtras();
 }
@@ -218,7 +218,7 @@ function renderExtras() {
 }
 function fileHTML(f,actions=false) {
   const url=publicURL('/api/classroom/files/'+encodeURIComponent(f.id)), included=S.work?.work.file_ids.includes(f.id);
-  return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'?'disabled':''}>${included?'已附成果':'附到成果'}</button>${f.preview?`<button type="button" data-ai-image="${esc(f.id)}">交给 AI</button>`:''}</div>`:''}</div>`;
+  return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'||S.uploading||S.submitting?'disabled':''}>${included?'已附成果':'附到成果'}</button>${f.preview?`<button type="button" data-ai-image="${esc(f.id)}">交给 AI</button>`:''}</div>`:''}</div>`;
 }
 function fieldsHTML(fields, projection=false) {
   const list=S.content.content.fields.filter(f=>(!f.hidden||(f.legacy&&fields[f.key]))&&(!projection||String(fields[f.key]??'').trim()));
@@ -472,14 +472,21 @@ async function sendChat(retry=false) {
   } catch(e) { if(seq===S.seq && S.pending){S.pending.error=e.message;$('#chatInput').value=p.message;} }
   finally { S.sending=false; if(seq===S.seq&&S.user) renderChat(); }
 }
+function filesForNextUpload() {
+  const selected=S.work.work.file_ids, previous=isGrape()?S.work.versions.at(-1)?.file_ids:null;
+  // Replace attachments still inherited from the last submission, but retain
+  // an edited selection or photos already added to this round's draft.
+  return previous?.length && selected.length===previous.length && selected.every(id=>previous.includes(id))?[]:[...selected];
+}
 async function uploadFiles(files,{submitToAI=false}={}) {
   if(!S.lesson||busy()||S.lesson.status!=='live'||!files.length) return false;
-  const seq=S.seq,target=isModel()?(S.uploadTarget||pictureTarget()):null,autoSubmit=submitToAI&&isInquiry(); S.uploading=true; let count=0, attached=0;
+  const seq=S.seq,target=isModel()?(S.uploadTarget||pictureTarget()):null,autoSubmit=submitToAI&&isInquiry(),selectedIds=filesForNextUpload(); S.uploading=true; let count=0, attached=0;
   try {
+    renderExtras();
     if(autoSubmit){
       if(files.some(f=>!/^image\/(png|jpeg|webp)$/.test(f.type)))throw new Error('请上传 PNG、JPG 或 WebP 图片。');
-      const selected=S.work.files.filter(f=>S.work.work.file_ids.includes(f.id));
-      if(S.work.work.file_ids.length+files.length>8)throw new Error('一次最多提交8张图片，请先取消不需要的成果附件，再确认照片。');
+      const selected=S.work.files.filter(f=>selectedIds.includes(f.id));
+      if(selectedIds.length+files.length>8)throw new Error('一次最多提交8张图片，请先取消不需要的成果附件，再确认照片。');
       if([...selected,...files].reduce((size,f)=>size+f.size,0)>20*1024*1024)throw new Error('本次照片与已选附件合计超过20 MB，请先减少成果附件，再确认照片。');
     }
     if(target){
@@ -492,6 +499,7 @@ async function uploadFiles(files,{submitToAI=false}={}) {
       const body=new FormData();body.append('file',file);
       const f=await api(`/files?lesson_id=${encodeURIComponent(S.lesson.id)}&stage=${S.stage}`,{method:'POST',body});
       if(seq!==S.seq) return false;
+      if(count===0)S.work.work.file_ids=selectedIds;
       S.work.files.push(f); if(S.work.work.file_ids.length<12) {S.work.work.file_ids.push(f.id);attached++;} count++;
       if(target)registerPicture(f.id,target);
       renderExtras(); markDirty();
@@ -508,7 +516,7 @@ async function uploadFiles(files,{submitToAI=false}={}) {
     }
     const saved=await saveWork(false); toast(`已上传 ${count} 份资料，${attached} 份已选为成果附件。${attached<count?'一次成果最多关联 12 份，可在附件列表调整。':''}${saved?'':'成果关联尚未同步，请重试保存。'}`); return saved;
   } catch(e) { toast(`已上传 ${count} 份；${e.message}`); return false; }
-  finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(S.user&&seq===S.seq){if(isModel())renderExtras();renderChat();} }
+  finally { S.uploading=false; S.uploadTarget=null; $('#fileInput').value=''; if(S.user&&seq===S.seq){renderExtras();renderChat();} }
 }
 async function present(group) {
   stopPresentation();
@@ -660,7 +668,7 @@ $('#workFields').addEventListener('input',e=>{if(!e.target.matches('[data-field]
 $('#workForm').addEventListener('submit',async e=>{e.preventDefault();if(S.uploading||S.extracting)return toast('请先等待上传或识别完成');await submitFinalWork();});
 $('#saveButton').addEventListener('click',()=>saveWork(false));
 $('#uploadButton').addEventListener('click',()=>choosePicture(null));$('#cameraButton').addEventListener('click',()=>choosePicture(null,true));$('#fileInput').addEventListener('change',e=>uploadFiles([...e.target.files]));
-$('#workFiles').addEventListener('click',e=>{const a=e.target.closest('[data-attach]'),b=e.target.closest('[data-ai-image]');if(a){const id=a.dataset.attach,ids=S.work.work.file_ids;if(ids.includes(id))S.work.work.file_ids=ids.filter(x=>x!==id);else if(ids.length<12)ids.push(id);else return toast('一次成果最多关联 12 份附件');markDirty();renderExtras();}if(b){const f=S.work.files.find(f=>f.id===b.dataset.aiImage);if(S.images.size>=4||[...S.images.values()].reduce((n,f)=>n+f.size,0)+f.size>20*1024*1024)return toast('一次最多 4 张图片，合计不超过 20 MB');S.images.set(f.id,f);setAI(true);renderChat();}});
+$('#workFiles').addEventListener('click',e=>{const a=e.target.closest('[data-attach]'),b=e.target.closest('[data-ai-image]');if(a){if(S.lesson.status!=='live'||S.uploading||S.submitting)return;const id=a.dataset.attach,ids=S.work.work.file_ids;if(ids.includes(id))S.work.work.file_ids=ids.filter(x=>x!==id);else if(ids.length<12)ids.push(id);else return toast('一次成果最多关联 12 份附件');markDirty();renderExtras();}if(b){const f=S.work.files.find(f=>f.id===b.dataset.aiImage);if(S.images.size>=4||[...S.images.values()].reduce((n,f)=>n+f.size,0)+f.size>20*1024*1024)return toast('一次最多 4 张图片，合计不超过 20 MB');S.images.set(f.id,f);setAI(true);renderChat();}});
 
 $('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat();});$('#chatMessages').addEventListener('click',e=>{if(e.target.closest('#retryChat'))sendChat(true);});
 $('#chatInput').addEventListener('keydown',e=>{

@@ -33,6 +33,8 @@ def grape_summary_prompt(flow_version=4):
     # Keep the existing evidence, length and teacher-only response contract.
     common = PROMPT[PROMPT.index('quote必须'):]
     extra = "" if flow_version == 4 else "\n10.2方案阶段为葡萄芽的萌发、膨大、成熟。区分种子与芽萌发，接受有条件建议、不施用或补充验证；不要求未提供的唯一药剂答案。协同拮抗结合阶段和具体作用判断，不强制采纳AI意见，不要求另交苹果迁移。\n"
+    if flow_version == 5:
+        extra += curriculum_for(flow_version).PLAN_LAYOUT_RULES
     focus = ('关注分阶段处理、数据与建议的对应、产量与品质权衡、情境和跟踪调整。' if flow_version == 4 else
              '按阶段与激素处理建议40分、特殊情境下的激素调整20分、激素处理的预期作用20分、环境调控与品质改善20分归纳问题。'
              '特殊情境项只看高温、低温、远运等情况下怎样调整激素施用，环境措施不能替代激素调整；预期作用项看激素处理带来的变化；环境项看相应阶段的调控措施、方向与品质目标。'
@@ -143,7 +145,8 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
             groups.append(dict(group_id=gid, version_id=v.id, revision=v.revision,
                                design=json.loads(v.data).get('design', ''),
                                items=result.get('items', []), correction=correction))
-        digest = hashlib.sha256(json.dumps([SUMMARY_VERSION, curriculum.RUBRIC_VERSION, states], ensure_ascii=False,
+        rules_version = [SUMMARY_VERSION, getattr(curriculum, 'PLAN_LAYOUT_RULES', '')]
+        digest = hashlib.sha256(json.dumps([rules_version, curriculum.RUBRIC_VERSION, states], ensure_ascii=False,
                                            sort_keys=True).encode()).hexdigest()
         return digest, groups, states
 

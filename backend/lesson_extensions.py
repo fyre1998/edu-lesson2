@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, Session
 
 from . import lesson_v2 as v2
 from . import lesson_v3 as v3
-from .lesson_curricula import curriculum as curriculum_for, INQUIRY_FLOWS, GRAPE_FLOWS
+from .lesson_curricula import curriculum as curriculum_for, scoring_rules, INQUIRY_FLOWS, GRAPE_FLOWS
 from .ai_schemas import EXTRACTION_SCHEMA, grading_schema
 from .student_feedback import student_feedback
 
@@ -179,6 +179,8 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
             assignment=assigned(session,version.lesson_id,version.group_id,None),
             rubric_snapshot=curriculum.grading_rubric(version.stage), flow_version=flow_version,
             unanswered=[] if flow_version in INQUIRY_FLOWS else sorted(v2.unanswered_items(version.stage,json.loads(version.data),json.loads(version.file_ids))))
+        if flow_version in GRAPE_FLOWS:
+            payload['scoring_rules_snapshot'] = scoring_rules(flow_version, curriculum.RUBRIC_VERSION)
         session.add(Assessment(version_id=version.id,rubric_version=curriculum.RUBRIC_VERSION,payload=json.dumps(payload,ensure_ascii=False)))
         background.add_task(run_score,session.get_bind(),version.id)
 
@@ -211,6 +213,7 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
                 # Retries use the rubric frozen at submission, even after configuration updates.
                 rubric=payload.pop('rubric_snapshot',None) or (v2.RUBRIC[v.stage] if a.rubric_version=='auxin-4x8-1' else v2.grading_rubric(v.stage))
                 unanswered=set(payload.pop('unanswered',[]))
+                rules_snapshot=payload.pop('scoring_rules_snapshot',None)
                 try:
                     if unanswered == {r[0] for r in rubric}:
                         a.result=json.dumps({'items':[dict(key=r[0],points=0,missing=True,evidence=[],reason='本项未作答，不计分。') for r in rubric]},ensure_ascii=False)
@@ -233,7 +236,7 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
 学生反馈不得包含教师完整量规、标准答案、其他项目的扣分清单或后续环节知识；不要把每个reason复制给学生。优点每条最多40个字符；改进建议每条最多20个字符，均包含标点，关联对应项目key。修改建议不直接代写实验或替学生给出结论。
 返回纯JSON {"items":[{"key":"项目key","points":0,"missing":true,"evidence":[],"reason":"教师依据"}],"feedback":{"strengths":[{"key":"项目key","text":"学生已有优点"}],"improvements":[{"key":"项目key","text":"一个修改动作"}]} }，items项目必须与量规完全一致。量规：'''+json.dumps(rubric,ensure_ascii=False)
                     if is_v3:
-                        system = system.rsplit('量规：', 1)[0] + (grape_curriculum.SCORING_RULES if is_grape else v3.SCORING_RULES if is_mutant else v3.LEGACY_SCORING_RULES) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
+                        system = system.rsplit('量规：', 1)[0] + (rules_snapshot or scoring_rules(payload['flow_version'], a.rubric_version)) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
                     allowed={'field:'+k for k in payload['fields']}|{'chat:'+str(c['id']) for c in payload['student_messages']}|{'file:'+fid for fid in ids}
                     raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=(grape_curriculum.score_schema if is_grape else v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed))
                     result=v2.parse_json(raw);items=result['items']

@@ -255,6 +255,10 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .single-projection .comparison>.notice,.single-projection .comparison>.loading{grid-column:1/-1}
 .single-projection .comparison>section{min-height:0;height:auto;padding:18px;overflow:hidden;border-radius:12px}
 .single-projection .comparison-heading h3{font-size:28px;margin:0 0 6px;line-height:1.35}
+.single-projection .projection-review-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px 24px;flex-wrap:wrap;margin-bottom:6px;font-size:28px;line-height:1.35}
+.single-projection .projection-review-heading h3{font-size:inherit;margin:0}
+.single-projection .projection-total{font-size:inherit;line-height:inherit;white-space:nowrap}
+.single-projection .projection-total small{font-size:inherit;font-weight:400}
 .single-projection .projection-review{background:#f3f7fc}
 .single-projection .comparison-work,.single-projection .projection-review-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;margin:0;padding:0 8px 8px 0}
 .single-projection .comparison-work,.single-projection .projection-review-scroll,
@@ -269,8 +273,6 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .single-projection .comparison-work a:has(img){display:block;cursor:zoom-in}
 .single-projection .comparison-score{max-height:none;overflow:visible;padding:0;border:0;background:transparent}
 .single-projection .comparison-score-heading{display:block;margin:0 0 12px}
-.single-projection .comparison-score-heading>strong{display:block;font-size:clamp(56px,4vw,72px);line-height:1.2;font-weight:700;white-space:normal}
-.single-projection .comparison-score-heading small{font-size:28px}
 .single-projection .comparison-score-heading .state{display:inline-block;font-size:18px;margin-top:6px}
 .single-projection .comparison-feedback{margin-top:12px;padding-top:12px}
 .single-projection .comparison-feedback h4{font-size:24px;margin:16px 0 8px;color:#365a79}

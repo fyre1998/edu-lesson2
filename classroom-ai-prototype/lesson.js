@@ -553,9 +553,9 @@ async function compare() {
       const submitted=version?`${fieldsHTML(version.fields,true)}${versionFiles(version.file_ids.filter(fid=>!pictureIds.includes(fid)),work.files)}`:'<p class="muted">尚未提交成果。</p>';
       const adjusted=version&&work.assignment?.adjusted_at>=version.updated?'<p class="notice">提交后教师调整过情境，请核对对应结果。</p>':'';
       const result=isInquiry()&&S.stage===1
-        ?`<p class="projection-caption">本环节不计分</p>${version?(matchHTML(version.result_match,false)||'<p>正在准备对应结果，请稍后更新展示。</p>'):'<p>提交后查看对应实验结果。</p>'}`
+        ?presentationReviewHTML('实验结果',`<p class="projection-caption">本环节不计分</p>${version?(matchHTML(version.result_match,false)||'<p>正在准备对应结果，请稍后更新展示。</p>'):'<p>提交后查看对应实验结果。</p>'}`)
         :presentationScoreHTML(work);
-      $('#comparison').innerHTML=`<section class="projection-pane" aria-label="第 ${id} 组成果"><header class="comparison-heading"><h3>学生成果</h3><p class="projection-caption">${version?'最近提交 · '+stamp(version.updated):'本组尚未提交'}</p></header><div class="comparison-work" tabindex="0" aria-label="第 ${id} 组成果，可滚动查看">${adjusted}${submitted}${!isInquiry()?assignmentHTML(work.assignment):''}</div></section><section class="projection-pane projection-review" aria-label="第 ${id} 组${isInquiry()&&S.stage===1?'实验结果':'评分与建议'}"><header class="comparison-heading"><h3>${isInquiry()&&S.stage===1?'实验结果':'评分与建议'}</h3></header><div class="projection-review-scroll" tabindex="0" aria-label="本组评价与结果，可滚动查看">${result}</div></section>`;
+      $('#comparison').innerHTML=`<section class="projection-pane" aria-label="第 ${id} 组成果"><header class="comparison-heading"><h3>学生成果</h3><p class="projection-caption">${version?'最近提交 · '+stamp(version.updated):'本组尚未提交'}</p></header><div class="comparison-work" tabindex="0" aria-label="第 ${id} 组成果，可滚动查看">${adjusted}${submitted}${!isInquiry()?assignmentHTML(work.assignment):''}</div></section><section class="projection-pane projection-review" aria-label="第 ${id} 组${isInquiry()&&S.stage===1?'实验结果':'评分与建议'}">${result}</section>`;
     }
   } catch(e) {
     if(request!==presentation.request || seq!==S.seq || !$('#presentationDialog').open)return;
@@ -578,18 +578,23 @@ async function togglePresentationMode() {
   presentation.mode=presentation.mode==='chat'?'work':'chat';
   await compare();
 }
+function presentationReviewHTML(title, content, total='') {
+  return `<header class="comparison-heading projection-review-heading"><h3>${title}</h3>${total}</header><div class="projection-review-scroll" tabindex="0" aria-label="本组评价与结果，可滚动查看">${content}</div>`;
+}
 function presentationScoreHTML(work) {
-  if(isInquiry()&&S.stage===1)return '<p>本环节不计分。</p>';
-  if(!work.versions.length)return '<p>尚未提交成果，暂无评分与建议。</p>';
-  if(!work.scores)return '<p>本课次未启用积分评分。</p>';
+  const review=(content,total='')=>presentationReviewHTML('评分与建议',content,total);
+  if(isInquiry()&&S.stage===1)return presentationReviewHTML('实验结果','<p>本环节不计分。</p>');
+  if(!work.versions.length)return review('<p>尚未提交成果，暂无评分与建议。</p>');
+  if(!work.scores)return review('<p>本课次未启用积分评分。</p>');
   const candidate=work.scores.stages.find(s=>s.stage===S.stage), latest=work.versions.at(-1);
   const score=candidate?scoreForLatestSubmission(candidate,work.versions):null;
-  if(!score || (score.version_id||null)!==(latest?.id||null))return '<p>成果已有更新，请点击“更新展示”同步对应评分。</p>';
+  if(!score || (score.version_id||null)!==(latest?.id||null))return review('<p>成果已有更新，请点击“更新展示”同步对应评分。</p>');
   const completed=completedScore(score), displayed=displayedScore(score), feedback=completed?score.feedback:null;
   const strengths=feedback?.strengths||[], suggestions=feedback?.improvements?.slice(0,2)||[];
   const source=feedback?.source==='score_summary'?'以下为按得分整理的提示。':feedback?.source==='teacher_review'?'以下提示按教师复核后的分数整理。':'';
   const details=completed?`<details class="projection-details"><summary>查看评分明细${strengths.length>1?'与其他优点':''}</summary>${strengths.length>1?`<h4>其他优点</h4><ul>${strengths.slice(1).map(i=>`<li>${feedbackTextHTML(i.text)}</li>`).join('')}</ul>`:''}${score.items.map(i=>`<p><strong>${esc(i.label)}：${i.points??'—'} / ${i.maximum}</strong><br>${esc(i.reason||'暂无详细说明')}</p>`).join('')}${score.correction?.reason?`<p><strong>教师复核：</strong>${esc(score.correction.reason)}</p>`:''}</details>`:'';
-  return `<div class="comparison-score"><div class="comparison-score-heading"><strong>本环节 ${displayed?.total??'—'} <small>/ ${displayed?.maximum??score.maximum}</small></strong><span class="state">${score.retained_score?'新提交':''}${esc(scoreStatus[score.status]||score.status)}</span></div>${retainedScoreHTML(score)}${completed?`<div class="comparison-feedback">${source?`<p class="projection-caption">${source}</p>`:''}${strengths.length?`<h4>主要优点</h4><div class="projection-strength">${feedbackTextHTML(strengths[0].text)}</div>`:''}<h4>改进建议</h4>${suggestions.length?`<ol>${suggestions.map(i=>`<li>${feedbackTextHTML(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'已达到本环节要求，无需补充建议。':'暂无改进建议，可展开查看评分说明。'}</p>`}</div>`:`<p>${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}${details}${score.history?.length?`<details class="projection-details"><summary>查看分数变化</summary>${scoreHistoryHTML(score)}</details>`:''}</div>`;
+  const total=`<strong class="projection-total">本环节 ${displayed?.total??'—'} <small>/ ${displayed?.maximum??score.maximum}</small></strong>`;
+  return review(`<div class="comparison-score"><div class="comparison-score-heading"><span class="state">${score.retained_score?'新提交':''}${esc(scoreStatus[score.status]||score.status)}</span></div>${retainedScoreHTML(score)}${completed?`<div class="comparison-feedback">${source?`<p class="projection-caption">${source}</p>`:''}${strengths.length?`<h4>主要优点</h4><div class="projection-strength">${feedbackTextHTML(strengths[0].text)}</div>`:''}<h4>改进建议</h4>${suggestions.length?`<ol>${suggestions.map(i=>`<li>${feedbackTextHTML(i.text)}</li>`).join('')}</ol>`:`<p>${score.total===score.maximum?'已达到本环节要求，无需补充建议。':'暂无改进建议，可展开查看评分说明。'}</p>`}</div>`:`<p>${score.status==='needs_clarification'?esc(score.clarification||'请补充清晰的设计照片后再次提交。'):score.status==='failed'?'评分暂未完成，请在教师观察台重试评分。':score.status==='model_submitted'?'模型已提交，完整成果提交后生成评分与建议。':'评分完成后，点击“更新展示”查看得分与建议。'}</p>`}${details}${score.history?.length?`<details class="projection-details"><summary>查看分数变化</summary>${scoreHistoryHTML(score)}</details>`:''}</div>`,total);
 }
 function renderPresentationControls() {
   const chat=presentation.mode==='chat';

@@ -19,7 +19,7 @@ from test_app import env
 ])
 def test_provider_routing_preserves_model_reasoning_and_schema(env, monkeypatch, base, sort, structured, expected):
     module, _ = env
-    for key, value in {'AI_API_KEY': 'test-key', 'AI_MODEL': 'bytedance-seed/seed-2.0-lite',
+    for key, value in {'AI_API_KEY': 'test-key', 'AI_MODEL': 'deepseek/deepseek-v4.1-flash',
                        'AI_REASONING_EFFORT': 'low', 'AI_MAX_TOKENS': '8192',
                        'AI_BASE_URL': base, 'AI_PROVIDER_SORT': sort}.items():
         monkeypatch.setenv(key, value)
@@ -29,7 +29,7 @@ def test_provider_routing_preserves_model_reasoning_and_schema(env, monkeypatch,
     def handler(request):
         payload = json.loads(request.content)
         assert payload.get('provider') == expected
-        assert payload['model'] == 'bytedance-seed/seed-2.0-lite'
+        assert payload['model'] == 'deepseek/deepseek-v4.1-flash'
         assert payload['reasoning'] == {'effort': 'low'}
         assert payload['max_tokens'] == 8192
         if structured:

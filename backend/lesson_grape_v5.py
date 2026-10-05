@@ -187,7 +187,7 @@ def result_row(item, catalogue=None):
 def result_rows(items, catalogue=None):
     """Attach the given control after submission, without inventing student work."""
     control = result_row(dict(result_id='water', excerpt='任务单已给定A组蒸馏水对照'), catalogue)
-    control['label'] = 'A组蒸馏水对照'
+    control['label'] = '蒸馏水'
     return [control] + [result_row(item, catalogue) for item in items if item['result_id'] != 'water']
 
 

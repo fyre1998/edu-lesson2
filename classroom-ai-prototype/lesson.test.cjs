@@ -625,10 +625,10 @@ test('10.2 scheme evaluation keeps the existing score bubble',()=>{
 test('10.2 control appears with submitted results, never on initial entry, and keeps clarification',()=>{
   const h=setup();h.run('S.lesson.flow_version=5;S.stage=1');
   assert.doesNotMatch(h.run('grapeResultsHTML(null)'),/170|225|300|320/);
-  const control={result_id:'water',label:'A组蒸馏水对照',mass:170,uncertainty:5.7};
+  const control={result_id:'water',label:'蒸馏水',mass:170,uncertainty:5.7};
   const result={revision:1,status:'needs_clarification',matches:[control],questions:['照片看不清，请补拍'],uncovered:[],error:''};
   const html=h.run(`grapeResultsHTML(${JSON.stringify(result)})`);
-  assert.match(html,/A组蒸馏水对照/);assert.match(html,/170 ± 5.7/);
+  assert.match(html,/蒸馏水/);assert.match(html,/170 ± 5.7/);
   assert.match(html,/照片看不清，请补拍/);assert.doesNotMatch(html,/225|300|320/);
   result.status='ready';result.questions=[];
   result.matches.push({result_id:'cppu',label:'CPPU',mass:300,uncertainty:2.8});
@@ -636,5 +636,5 @@ test('10.2 control appears with submitted results, never on initial entry, and k
   const conversation=h.run(`chatsHTML([],${JSON.stringify([version])},[])`);
   assert.equal((conversation.match(/170 ± 5.7/g)||[]).length,1);
   assert.match(conversation,/300 ± 2.8/);
-  assert.match(h.run(`matchHTML(${JSON.stringify(result)},false)`),/A组蒸馏水对照/);
+  assert.match(h.run(`matchHTML(${JSON.stringify(result)},false)`),/蒸馏水/);
 });

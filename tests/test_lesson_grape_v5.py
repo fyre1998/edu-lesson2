@@ -103,7 +103,7 @@ def test_chat_and_submission_share_conditions_and_show_partial_warnings(env, mon
     design = 'B组：用GA3 50mg/L；C组：用CPPU10mg/L'
     reply = chat(c, lid, design)
     assert reply.status_code == 201, reply.text
-    assert 'A组蒸馏水对照：170 ± 5.7 g' in reply.json()['answer']
+    assert '蒸馏水：170 ± 5.7 g' in reply.json()['answer']
     assert '300 ± 2.8 g' in reply.json()['answer'] and '225' not in reply.json()['answer']
     assert '浓度与任务单给定条件不同' in reply.json()['answer']
     assert submit(c, lid, 1, {'design': design}).status_code == 201
@@ -224,12 +224,12 @@ def test_control_accompanies_submitted_design_without_requiring_or_duplicating_a
     mock(module, monkeypatch, lambda _: pytest.fail('Simple designs must not call AI'))
     assert work(c, lid)['result_match'] is None
     answer = chat(c, lid, design).json()['answer']
-    assert answer.count('A组蒸馏水对照：170 ± 5.7 g') == 1
+    assert answer.count('蒸馏水：170 ± 5.7 g') == 1
     assert submit(c, lid, 1, {'design': design}).status_code == 201
     result = work(c, lid)['result_match']
     assert result['status'] == status
     assert [(r['result_id'], r['mass']) for r in result['matches']] == expected
-    assert result['matches'][0]['label'] == 'A组蒸馏水对照'
+    assert result['matches'][0]['label'] == '蒸馏水'
     assert result['matches'][0]['uncertainty'] == 5.7
     if status == 'unmatched':
         assert result['uncovered'] and '暂无对应课件数据' in answer

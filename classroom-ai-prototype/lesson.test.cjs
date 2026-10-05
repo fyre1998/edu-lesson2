@@ -269,6 +269,74 @@ test('photo submissions and multi-image replies stay together and escape student
   assert.doesNotMatch(html,/<script>|<img src=x>/);
 });
 
+function schemeVersion(id,time,status='ready',total=80){
+  return {id,revision:time,updated:time,author:'第 1 组',fields:{design:`方案${id}`},file_ids:[],
+    assessment:{version_id:id,revision:time,status,updated:Date.now()/1000,total:['ready','corrected'].includes(status)?total:null,maximum:100,
+      items:[{key:'design',label:'阶段与处理',points:30,maximum:40}],
+      feedback:{source:'ai',strengths:[{text:`优点${id}`}],improvements:[{text:`建议${id}`}]}}};
+}
+
+for(const flow of [3,4,5])test(`stage two submission feedback stays in chat across revisions and reload in flow ${flow}`,()=>{
+  const a=setup(),first=schemeVersion('first',10),second=schemeVersion('second',30,'processing');
+  a.run(`S.lesson.flow_version=${flow};S.stage=2;S.work.versions=${JSON.stringify([first,second])};S.groups=[{id:1,chats:[{created:20,question:'中间讨论',answer:'继续比较证据'}]}];renderChat()`);
+  let html=a.el('#chatMessages').innerHTML;
+  assert.match(html,/80 \/ 100/);assert.match(html,/建议first/);assert.match(html,/AI 正在阅读本次方案/);
+  assert.doesNotMatch(html,/建议second|实验结果|百粒质量/);
+  assert.ok(html.indexOf('方案first')<html.indexOf('中间讨论'));
+  assert.ok(html.indexOf('中间讨论')<html.indexOf('方案second'));
+  const ready=schemeVersion('second',30,'ready',90);
+  a.run(`S.work.versions=${JSON.stringify([first,ready])};renderChat();renderChat()`);
+  html=a.el('#chatMessages').innerHTML;
+  assert.equal((html.match(/data-submission-id=/g)||[]).length,2);
+  assert.match(html,/80 \/ 100/);assert.match(html,/90 \/ 100/);assert.match(html,/第 2 次方案评价/);assert.match(html,/建议second/);
+  const fresh=setup();fresh.run(`S.lesson.flow_version=${flow};S.stage=2;S.work.versions=${JSON.stringify([first,ready])};renderChat()`);
+  assert.match(fresh.el('#chatMessages').innerHTML,/建议first/);assert.match(fresh.el('#chatMessages').innerHTML,/建议second/);
+  fresh.run('S.stage=1;S.work.versions=[];renderChat()');assert.doesNotMatch(fresh.el('#chatMessages').innerHTML,/方案first|建议second/);
+});
+
+test('stage two refresh updates assessment in chat without replacing the draft',async()=>{
+  const a=setup(),v=schemeVersion('saved',10);
+  a.run('S.lesson.flow_version=5;S.stage=2');a.fields[0].value='尚未提交的新修改';
+  const pending=a.run('refreshWork(false)');
+  a.calls[0].reply({work:{revision:0},versions:[v],files:[],scores:null,result_match:null});await pending;
+  assert.equal(a.fields[0].value,'尚未提交的新修改');
+  assert.match(a.el('#chatMessages').innerHTML,/方案saved|建议saved/);
+  assert.doesNotMatch(a.el('#chatMessages').innerHTML,/尚未提交的新修改/);
+});
+
+test('stage two photo assessment shows pending, retry and clarification for the correct submission',()=>{
+  const a=setup('https://lsclass.top/lesson/paths.js'),v=schemeVersion('photo',10,'pending');
+  a.run('S.lesson.flow_version=5;S.stage=2');v.fields.design='';v.file_ids=['photo'];
+  const render=()=>a.run(`chatsHTML([],${JSON.stringify([v])},[{id:'photo',preview:true,name:'<img src=x>'}])`);
+  let html=render();assert.match(html,/增产方案照片/);assert.match(html,/\/lesson\/api\/classroom\/files\/photo\?preview=true/);
+  assert.match(html,/正在排队评分/);assert.doesNotMatch(html,/data-inquiry-score-retry|<img src=x>|建议photo/);
+  v.assessment.updated=1;assert.match(render(),/data-inquiry-score-retry="photo"/);
+  v.assessment.status='failed';assert.match(render(),/评价暂未完成/);assert.match(render(),/data-inquiry-score-retry="photo"/);
+  v.assessment.status='needs_clarification';v.assessment.clarification='请补拍<成熟期>的方案';
+  html=render();assert.match(html,/请补拍&lt;成熟期&gt;的方案/);assert.doesNotMatch(html,/data-inquiry-score-retry|80 \/ 100/);
+  v.assessment=schemeVersion('different',10).assessment;
+  html=render();assert.match(html,/正在排队评分/);assert.doesNotMatch(html,/建议different|80 \/ 100/);
+  v.assessment=schemeVersion('photo',10,'corrected',0).assessment;
+  v.assessment.feedback.strengths[0].text='<script>不执行</script>';
+  html=render();assert.match(html,/教师已复核/);assert.match(html,/0 \/ 100/);assert.doesNotMatch(html,/<script>/);
+  a.run("S.lesson.status='archived'");v.assessment.status='failed';assert.doesNotMatch(render(),/data-inquiry-score-retry/);
+});
+
+test('teacher detail and chat projection include stage two submitted assessments',()=>{
+  const a=presentationSetup(),v=schemeVersion('projected',10),waiting=schemeVersion('waiting',20,'failed');
+  const w={work:{fields:{design:'未提交的草稿'},file_ids:[]},versions:[v,waiting],files:[],assignment:null};
+  const g={id:1,chats:[{created:15,question:'追问',answer:'讨论回复'}]};
+  a.run(`S.lesson.flow_version=5;S.stage=2;S.work=${JSON.stringify(w)};S.groups=[${JSON.stringify(g)}];S.roster={groups:[{id:1,members:[]}]};renderDetail()`);
+  const detail=a.el('#groupDetail').innerHTML.split('<div class="teacher-chat">')[1];
+  const projection=a.run(`presentationChatHTML(${JSON.stringify(w)},${JSON.stringify(g)},1)`);
+  assert.match(detail,/本组 AI 对话（3 轮）/);assert.match(projection,/2 次方案提交与评价/);
+  for(const html of [detail,projection]){
+    assert.match(html,/方案projected/);assert.match(html,/建议projected/);assert.match(html,/80 \/ 100/);
+    assert.match(html,/讨论回复/);assert.match(html,/评价暂未完成/);
+    assert.doesNotMatch(html,/未提交的草稿|data-inquiry-score-retry|建议waiting/);
+  }
+});
+
 test('Enter sends through the form exactly once and retains normal chat completion',async()=>{
   const a=setup();a.run('S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}]');
   a.el('#chatInput').value='请比较两次实验';let prevented=0;

@@ -179,12 +179,15 @@ function grapeResultsHTML(m,actions=true) {
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
   return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
-function versionExtras(v) {
+function versionExtras(v,actions=true) {
   if(!isInquiry())return '';
-  if(S.stage===1)return matchHTML(v.result_match);
-  const score=v.assessment;
-  if(!score)return '';
-  return `<section class="version-assessment"><h4>本次评价 · ${esc(scoreStatus[score.status]||score.status)}</h4>${score.total!==null?`<strong>${score.total} / ${score.maximum}</strong>${studentFeedbackHTML(score)}<div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} ${i.points??'—'} / ${i.maximum}</span>`).join('')}</div>`:''}${score.clarification?`<p class="notice">${esc(score.clarification)}</p>`:''}</section>`;
+  if(S.stage===1)return matchHTML(v.result_match,actions);
+  // Read this submission's assessment, never a retained mark from another version.
+  const score=v.assessment && (!v.assessment.version_id || v.assessment.version_id===v.id)?v.assessment:null;
+  const status=score?.status||'pending', completed=completedScore(score);
+  const messages={pending:'方案已收到，正在排队评分，完成后会自动显示评价。',processing:'AI 正在阅读本次方案，评分与建议完成后会自动显示。',failed:'本次方案已保存，评价暂未完成，可重试，无需重复提交。',needs_clarification:score?.clarification||'照片内容不够清晰，请补拍后再次提交。'};
+  const retry=score && (status==='failed'||(['pending','processing'].includes(status)&&Date.now()/1000-score.updated>=180));
+  return `<section class="version-assessment"><h4>本次评价 · ${esc(scoreStatus[status]||status)}</h4>${completed?`<strong>${score.total} / ${score.maximum}</strong>${studentFeedbackHTML(score)}<details class="feedback-breakdown"><summary>查看分项得分</summary><div class="comparison-points">${score.items.map(i=>`<span>${esc(i.label)} ${i.points??'—'} / ${i.maximum}</span>`).join('')}</div></details>`:`<p class="notice">${esc(messages[status]||'正在同步本次方案的评价…')}</p>`}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-inquiry-score-retry="${esc(v.id)}">重试评分</button>`:''}</section>`;
 }
 function syncSubmissionResults(work) {
   // Poll results without overwriting a draft that the student is still typing.
@@ -210,7 +213,7 @@ function renderExtras() {
   show('#submitRow',true);
   $('#submitButton').textContent=isInquiry()?(isGrape()?(S.stage===1?'提交设计并获取实验结果':'提交增产方案并评分'):(S.stage===1?'提交思路并获取结果图':'提交设计并评分')):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
   $('#versionCount').textContent=count?`（${count} 次）`:'';
-  if(isInquiry()&&S.stage===1)renderChat();
+  if(isInquiry())renderChat();
   if(typeof renderModel==='function')renderModel();
   if(typeof renderScores==='function')renderScores();
   if($('#activityFeed'))$('#activityFeed').innerHTML=w.files.map(f=>`<div class="activity-receipt">已上传 · ${esc(f.name)}</div>`).join('')+w.versions.map((v,i)=>`<div class="activity-receipt">✓ ${v.fields.phase==='model'?'模型图已提交':v.fields.phase==='discussion'?'讨论答案已提交':`第 ${i+1} 次成果已提交`} · ${stamp(v.updated)}</div>`).join('');
@@ -408,7 +411,7 @@ function renderDetail() {
   const snapshot=JSON.stringify([S.stage,g,w,S.lesson.release_results,S.lesson.status]);
   if($('#groupDetail').dataset.snapshot===snapshot)return;
   const openStates=$$('#groupDetail details').map(d=>d.open);
-  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()&&S.stage===1?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()&&S.stage===1?w.versions:[],w.files)}</details></div>`;
+  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()?w.versions:[],w.files,false)}</details></div>`;
   $$('#groupDetail details').forEach((d,i)=>d.open=openStates[i]||false);
   $('#groupDetail').dataset.snapshot=snapshot;
 }
@@ -438,15 +441,19 @@ function chatAnswerText(answer) {
   if(index<0)return answer;
   return [...sections.slice(0,index),sections[index].replace(/（字母标记 [a-d]）/g,'')].join('\n\n');
 }
-function chatsHTML(chats,versions=[],files=[]) {
+function chatsHTML(chats,versions=[],files=[],actions=true) {
   const entries=chats.map(c=>({time:c.created||0,html:`<div class="chat-entry student"><div class="speaker">${esc(c.author)}</div><p>${esc(c.question)}</p>${(c.images||[]).map(f=>`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}"></a>`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div><p>${esc(chatAnswerText(c.answer))}</p></div>`}));
-  versions.forEach((v,i)=>entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次实验思路</div><p>${esc(v.fields.design||'请查看本次提交的实验思路照片。')}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次实验结果</div>${v.result_match?matchHTML(v.result_match):`<p class="muted">已收到本次思路，正在准备对应的${isGrape()?'百粒质量':'结果图'}…</p>`}</div></div>`}));
+  const submissionLabel=S.stage===1?'实验思路':isGrape()?'增产方案':'实验设计';
+  versions.forEach((v,i)=>{
+    const reply=S.stage===1?(v.result_match?matchHTML(v.result_match,actions):`<p class="muted">已收到本次思路，正在准备对应的${isGrape()?'百粒质量':'结果图'}…</p>`):versionExtras(v,actions);
+    entries.push({time:v.updated||0,html:`<div class="submission-conversation" data-submission-id="${esc(v.id)}"><div class="chat-entry student"><div class="speaker">${esc(v.author||'本组')} · 第 ${i+1} 次${submissionLabel}</div><p>${esc(v.fields.design||`请查看本次提交的${submissionLabel}照片。`)}</p>${versionFiles(v.file_ids,files)}</div><div class="chat-entry experiment-reply"><div class="speaker">AI 指导 · 第 ${i+1} 次${S.stage===1?'实验结果':'方案评价'}</div>${reply}</div></div>`});
+  });
   return entries.sort((a,b)=>a.time-b.time).map(entry=>entry.html).join('');
 }
 function renderChat() {
   if(!S.content || isTeacher()) return;
   const g=S.groups.find(g=>g.id===S.user.groupId), box=$('#chatMessages');
-  const versions=isInquiry()&&S.stage===1?(S.work?.versions||[]):[];
+  const versions=isInquiry()?(S.work?.versions||[]):[];
   let html=(S.content.opener?`<div class="chat-entry opener"><div class="speaker">本环节引导</div><p>${esc(S.content.opener)}</p></div>`:'')+chatsHTML(g?.chats||[],versions,S.work?.files||[]);
   if(S.pending) html+=`<div class="chat-entry student"><div class="speaker">${esc(S.user.name)}</div><p>${esc(S.pending.message||'请查看这些图片。')}</p>${S.pending.images.map(f=>`<img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}">`).join('')}</div><div class="chat-entry"><p class="${S.pending.error?'error':'muted'}">${esc(S.pending.error||'AI 正在思考…')}</p>${S.pending.error?'<button id="retryChat">重试这条消息</button>':''}</div>`;
   if(box.innerHTML!==(html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>')) {box.innerHTML=html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>';const scroller=$('#conversationScroll');if(S.content.opener||(g?.chats?.length||0)>0||versions.length||S.pending)scroller.scrollTop=scroller.scrollHeight;}
@@ -562,9 +569,9 @@ async function compare() {
   }
 }
 function presentationChatHTML(work, group, id) {
-  const chats=group?.chats||[],versions=isInquiry()&&S.stage===1?work.versions:[];
-  const conversation=chatsHTML(chats,versions,work.files);
-  return `<section class="projection-pane projection-chat-pane" aria-label="第 ${id} 组与 AI 对话"><header class="comparison-heading"><h3>第 ${id} 组与 AI 对话</h3><p class="projection-caption">环节 ${S.stage} · ${chats.length} 轮对话${versions.length?' · '+versions.length+' 次实验思路与结果':''}</p></header><div class="comparison-work comparison-chat" tabindex="0" aria-label="第 ${id} 组与 AI 对话，可滚动查看">${S.content.opener?`<details class="conversation-opener"><summary>本环节引导</summary><p>${esc(S.content.opener)}</p></details>`:''}${conversation||'<p class="muted">本组在当前环节还没有与 AI 的对话。</p>'}</div></section>`;
+  const chats=group?.chats||[],versions=isInquiry()?work.versions:[];
+  const conversation=chatsHTML(chats,versions,work.files,false);
+  return `<section class="projection-pane projection-chat-pane" aria-label="第 ${id} 组与 AI 对话"><header class="comparison-heading"><h3>第 ${id} 组与 AI 对话</h3><p class="projection-caption">环节 ${S.stage} · ${chats.length} 轮对话${versions.length?' · '+versions.length+(S.stage===1?' 次实验思路与结果':' 次方案提交与评价'):''}</p></header><div class="comparison-work comparison-chat" tabindex="0" aria-label="第 ${id} 组与 AI 对话，可滚动查看">${S.content.opener?`<details class="conversation-opener"><summary>本环节引导</summary><p>${esc(S.content.opener)}</p></details>`:''}${conversation||'<p class="muted">本组在当前环节还没有与 AI 的对话。</p>'}</div></section>`;
 }
 async function togglePresentationMode() {
   if(!$('#presentationDialog').open)return;

@@ -159,8 +159,8 @@ function renderStudent() {
 function assignmentHTML(a) {
   return a?`<div class="assignment"><span class="kind hypothetical">${esc(a.kind)}</span><h3>${esc(a.treatment_label)}</h3><a href="${esc(publicURL(a.image))}" target="_blank" rel="noopener"><img src="${esc(publicURL(a.image))}?v=${a.variant}" alt="假设情境：${esc(a.label)}"></a><p><strong>${esc(a.label)}</strong></p><p>${esc(a.control)}</p><p>${esc(a.boundary)}</p></div>`:'';
 }
-function isGrape() { return S.lesson?.flow_version===4; }
-function isInquiry() { return [3,4].includes(S.lesson?.flow_version); }
+function isGrape() { return [4,5].includes(S.lesson?.flow_version); }
+function isInquiry() { return [3,4,5].includes(S.lesson?.flow_version); }
 function matchStatus(m) {
   if(isGrape())return !m?'提交实验设计后获取百粒质量':({pending:'等待匹配百粒质量',processing:'正在识别各组处理',ready:`已返回 ${m.matches.length} 组百粒质量`,needs_clarification:'请补充关键处理',unmatched:'暂无对应课件数据',failed:'数据匹配暂未完成，可重试'}[m.status]||'正在同步');
   if(!m)return '提交简要思路后获取结果图';
@@ -174,7 +174,8 @@ function matchHTML(m,actions=true) {
 }
 function grapeResultsHTML(m,actions=true) {
   if(!m)return '<p class="notice">提交各组实验处理或任务单照片后，在此查看对应百粒质量。本环节不计分。</p>';
-  if(m.matches.length)return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><div class="mass-table-scroll"><table class="material-table mass-table"><caption>对应处理的百粒质量</caption><thead><tr><th scope="col">处理</th><th scope="col">百粒质量 / g</th></tr></thead><tbody>${m.matches.map(r=>`<tr><th scope="row">${esc(r.label)}</th><td><strong>${esc(r.mass)} ± ${esc(r.uncertainty)}</strong></td></tr>`).join('')}</tbody></table></div></section>`;
+  const notices=S.lesson?.flow_version===5?`${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}`:'';
+  if(m.matches.length)return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><div class="mass-table-scroll"><table class="material-table mass-table"><caption>对应处理的百粒质量</caption><thead><tr><th scope="col">处理</th><th scope="col">百粒质量 / g</th></tr></thead><tbody>${m.matches.map(r=>`<tr><th scope="row">${esc(r.label)}</th><td><strong>${esc(r.mass)} ± ${esc(r.uncertainty)}</strong></td></tr>`).join('')}</tbody></table></div>${notices}</section>`;
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
   return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
@@ -431,7 +432,7 @@ async function control(body) { await api(base(),{method:'PATCH',body}); await lo
 async function createLesson() { const title=$('#newLessonTitle')?.value||'植物激素与葡萄增产 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
 function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
 function chatAnswerText(answer) {
-  if(!isGrape()||S.stage!==1)return answer;
+  if(S.lesson?.flow_version!==4||S.stage!==1)return answer;
   // Apply the current display format to saved replies without changing the records.
   const sections=answer.split(/\n\s*\n/), index=sections.findIndex(s=>s.startsWith('对应处理的百粒质量：\n'));
   if(index<0)return answer;

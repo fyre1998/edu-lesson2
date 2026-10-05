@@ -39,8 +39,8 @@ test('subpath classroom sends API requests and renders attachments inside lesson
   assert.match(a.run('draftKey()'),/^lesson2:/);
 });
 
-function photoSetup(stage=1){
-  const a=setup();a.run(`S.lesson.flow_version=3;S.stage=${stage};S.edit=S.savedEdit=0`);
+function photoSetup(stage=1,flow=3){
+  const a=setup();a.run(`S.lesson.flow_version=${flow};S.stage=${stage};S.edit=S.savedEdit=0`);
   return a;
 }
 const photo=()=>new File(['photo bytes'],'实验照片.jpg',{type:'image/jpeg'});
@@ -49,8 +49,8 @@ function photoWork(){
   return {work:{revision:1,updated:10,fields:{},file_ids:['photo-1']},files:[storedPhoto],versions:[{id:'v1',revision:1,fields:{},file_ids:['photo-1'],updated:10}],assignment:null};
 }
 
-for(const stage of [1,2])test(`camera confirmation automatically submits the photo in stage ${stage} exactly once`,async()=>{
-  const a=photoSetup(stage),file=photo();
+for(const flow of [3,4,5])for(const stage of [1,2])test(`camera confirmation automatically submits flow ${flow} stage ${stage} exactly once`,async()=>{
+  const a=photoSetup(stage,flow),file=photo();
   const pending=a.camera.onConfirm(file);
   assert.equal(a.calls.length,1);assert.ok(a.calls[0].body instanceof FormData);
   assert.equal(a.calls[0].body.get('file').name,'实验照片.jpg');
@@ -508,4 +508,26 @@ test('photo-only projection omits empty text fields and partial historical marks
   const html=a.run("studentFeedbackHTML({total:5,maximum:10,feedback:{strengths:[],improvements:[]}})");
   assert.doesNotMatch(html,/已达到本环节要求/);
   assert.match(html,/暂无改进建议/);
+});
+
+test('10.2 results retain mixed warnings in chat, submission history and projection',()=>{
+  const h=setup('https://lsclass.top/lesson/paths.js');h.run('S.lesson.flow_version=5;S.stage=1');
+  assert.equal(h.run('isInquiry()'),true);assert.equal(h.run('isGrape()'),true);
+  const result={revision:1,status:'ready',matches:[{label:'CPPU',mass:300,uncertainty:2.8}],questions:['D组处理是什么？'],uncovered:['B组GA3 50mg/L<未知>'],error:''};
+  const html=h.run(`grapeResultsHTML(${JSON.stringify(result)},false)`);
+  assert.match(html,/300 ± 2.8/);assert.match(html,/D组处理是什么/);
+  assert.match(html,/暂无对应课件数据：B组GA3 50mg\/L&lt;未知&gt;/);
+  const answer='对应处理的百粒质量：\nCPPU：300 ± 2.8 g\n\n暂无对应课件数据：B组浓度改变';
+  assert.equal(h.run(`chatAnswerText(${JSON.stringify(answer)})`),answer);
+  const version={id:'v5',revision:1,updated:10,fields:{design:'混合处理'},file_ids:[],result_match:result};
+  assert.match(h.run(`chatsHTML([],${JSON.stringify([version])},[])`),/暂无对应课件数据/);
+  const image=h.run(`materialHTML({id:'grape-quality',kind:'实验结果',title:'品质',source:'10.2课件',paragraphs:[],images:[{url:'/api/classroom/lessons/l/materials/grape-quality/assets/grape-1002-quality.jpg',caption:'数据'}]})`);
+  assert.match(image,/src="\/lesson\/api\/classroom/);
+});
+
+test('10.2 scheme evaluation keeps the existing score bubble',()=>{
+  const h=setup();h.run(`S.lesson.flow_version=5;S.stage=2;S.edit=S.savedEdit=0;
+    renderStudentScore({total:90,graded:1,maximum:100,stages:[{stage:2,version_id:'v5',revision:1,status:'ready',total:90,maximum:100,items:[],history:[],feedback:{source:'ai',strengths:[{text:'区分芽与种子'}],improvements:[{text:'补充跟踪指标'}]}}]});`);
+  assert.equal(h.el('#scoreBubblePoints').textContent,'90 / 100');
+  assert.match(h.el('#studentScore').innerHTML,/补充跟踪指标/);
 });

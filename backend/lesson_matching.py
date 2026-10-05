@@ -9,8 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, Session
 
-from . import lesson_v3 as v3
-from . import lesson_grape as grape
+from .lesson_curricula import curriculum as curriculum_for, matching_curriculum, INQUIRY_FLOWS
 from .lesson_v2 import parse_json
 
 
@@ -30,7 +29,7 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
     active = set()
 
     def queue(session, version, background):
-        curriculum = grape if config(get_lesson(session, version.lesson_id))[0] == 4 else v3
+        curriculum = curriculum_for(config(get_lesson(session, version.lesson_id))[0])
         session.add(Match(version_id=version.id, mapping_version=curriculum.MATCH_VERSION,
                           payload=json.dumps(dict(fields=json.loads(version.data),
                               file_ids=json.loads(version.file_ids), catalogue=curriculum.RESULTS), ensure_ascii=False)))
@@ -49,11 +48,11 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
                     try:
                         payload = json.loads(record.payload)
                         catalogue = payload['catalogue']
-                        curriculum = grape if record.mapping_version == grape.MATCH_VERSION else v3
+                        curriculum = matching_curriculum(record.mapping_version)
                         parts = [{'type': 'text', 'text': json.dumps({'fields': payload['fields']}, ensure_ascii=False)}]
                         parts += picture_parts(session, payload['file_ids'], version.lesson_id, version.group_id, 1)
-                        result = (grape.direct_matches(payload['fields'].get('design', ''))
-                                  if curriculum is grape and not payload['file_ids'] else None)
+                        result = (curriculum.direct_matches(payload['fields'].get('design', ''))
+                                  if hasattr(curriculum, 'direct_matches') and not payload['file_ids'] else None)
                         if result is None:
                             response = await call_ai([
                                 {'role': 'system', 'content': curriculum.MATCH_PROMPT + json.dumps(
@@ -61,8 +60,8 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
                                 {'role': 'user', 'content': parts},
                             ], response_schema=curriculum.MATCH_SCHEMA)
                             result = parse_json(response)
-                        if curriculum is grape:
-                            grape.validate_matches(result)
+                        if hasattr(curriculum, 'direct_matches'):
+                            curriculum.validate_matches(result)
                         if not isinstance(result, dict) or set(result) != {'readable', 'matches', 'questions', 'uncovered'}:
                             raise ValueError('invalid result')
                         if type(result['readable']) is not bool or not isinstance(result['matches'], list) or len(result['matches']) > 6:
@@ -106,8 +105,8 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
         matches = [dict(**item, label=catalogue[item['result_id']][0],
                         image=f'/api/classroom/lessons/{version.lesson_id}/matches/{version.id}/images/{item["result_id"]}')
                    for item in result.get('matches', [])]
-        if record.mapping_version == grape.MATCH_VERSION:
-            matches = [grape.result_row(item, catalogue) for item in result.get('matches', [])]
+        if hasattr(matching_curriculum(record.mapping_version), 'result_row'):
+            matches = [matching_curriculum(record.mapping_version).result_row(item, catalogue) for item in result.get('matches', [])]
         return dict(version_id=version.id, revision=version.revision, status=record.status,
                     updated=record.updated, error=record.error, matches=matches,
                     questions=result.get('questions', []), uncovered=result.get('uncovered', []))
@@ -115,7 +114,7 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
     def permitted(session, lesson_id, version_id, user, write=False):
         lesson = get_lesson(session, lesson_id, 1, write=write)
         version = session.get(Version, version_id)
-        if config(lesson)[0] not in (3, 4) or not version or version.lesson_id != lesson_id or version.stage != 1:
+        if config(lesson)[0] not in INQUIRY_FLOWS or not version or version.lesson_id != lesson_id or version.stage != 1:
             raise HTTPException(404, '匹配记录不存在')
         check_group(user, version.group_id)
         record = session.get(Match, version_id)
@@ -126,7 +125,7 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
     @router.get('/lessons/{lesson_id}/matches/{version_id}/images/{result_id}')
     def image(lesson_id: str, version_id: str, result_id: str, user=Depends(identity), session=Depends(db)):
         _, record = permitted(session, lesson_id, version_id, user)
-        if record.mapping_version == grape.MATCH_VERSION:
+        if hasattr(matching_curriculum(record.mapping_version), 'result_row'):
             raise HTTPException(404, '本课提供百粒质量数据，没有结果图')
         if result_id not in {m['result_id'] for m in json.loads(record.result).get('matches', [])}:
             raise HTTPException(404, '本次提交没有此结果图')

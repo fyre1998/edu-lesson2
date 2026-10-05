@@ -62,7 +62,7 @@ function scoreForLatestSubmission(score, versions = []) {
 }
 function renderStudentScore(scores) {
   const bubble = $('#studentScoreBubble');
-  if (!S.user || isTeacher() || !S.lesson || ![2, 3, 4].includes(S.lesson.flow_version) || !scores) {
+  if (!S.user || isTeacher() || !S.lesson || ![2, 3, 4, 5].includes(S.lesson.flow_version) || !scores) {
     resetScoreBubble(); return;
   }
   let score = scores.stages.find(s => s.stage === S.stage);
@@ -93,7 +93,7 @@ function renderStudentScore(scores) {
     pending:'成果已收到，正在排队评分。完成后会自动展示反馈。',
     processing:'AI 正在阅读你们的成果，评分与反馈即将出现在这里。',
     needs_clarification:esc(score.clarification || '请补充清晰的设计照片后再次提交。'),
-    failed:[3,4].includes(S.lesson.flow_version)?'成果已保存，评分暂未完成，可重试，无需重复提交。':'成果已保存，评分暂未完成。请老师在观察台点击“重试评分”，无需重复提交。'
+    failed:[3,4,5].includes(S.lesson.flow_version)?'成果已保存，评分暂未完成，可重试，无需重复提交。':'成果已保存，评分暂未完成。请老师在观察台点击“重试评分”，无需重复提交。'
   };
   const visibleScores = scores.stages.map(s => s.stage === S.stage ? score : s);
   const total = visibleScores.some(s => displayedScore(s)) ? visibleScores.reduce((n,s) => n + (displayedScore(s)?.total || 0), 0) : '—';

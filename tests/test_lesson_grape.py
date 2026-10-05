@@ -15,7 +15,7 @@ def start(c, monkeypatch, stage=1):
     monkeypatch.setenv('CLASSROOM_CODE', 'BIO-302')
     monkeypatch.setenv('CLASSROOM_TEACHER_PASSWORD', 'teacher-test-password')
     classroom_login(c, teacher=True)
-    r = c.post('/api/classroom/lessons', json={})
+    r = c.post('/api/classroom/lessons', json={'flow_version': 4})
     assert r.status_code == 201, r.text
     assert r.json()['flow_version'] == 4 and r.json()['group_count'] == 8
     lid = r.json()['id']

@@ -58,6 +58,8 @@ python scripts/start_classroom_preview.py --foreground
 
 当前课程模板、材料权限及具体课堂操作见 [课堂使用说明](classroom-ai-prototype/README.md)。`outputs/` 内早于本次项目隔离的验收记录继承自第一课，不能作为第二课上线完成的依据。
 
+第二课速度优先配置为 `AI_MODEL=bytedance-seed/seed-2.0-lite`、`AI_REASONING_EFFORT=low`、`AI_MAX_TOKENS=8192`，用于图片识别、课堂对话、方案评分与教师汇总。`AI_PROVIDER_SORT=throughput` 在 OpenRouter 上优先选择输出较快的服务商，同时保留严格 JSON 支持和服务商故障回退；留空沿用默认路由，其他接口不发送该参数。简单文字处理继续直接匹配课件数据，无需等待 AI。语音转写仍由 `STT_MODEL` 单独配置。
+
 ## 测试
 
 ```powershell

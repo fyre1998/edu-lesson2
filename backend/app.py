@@ -338,8 +338,15 @@ async def call_ai(messages, *, json_output=False, response_schema=None):
     if response_schema is not None:
         payload['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'classroom_response', 'strict': True, 'schema': response_schema}}
-        if httpx.URL(base_url).host == 'openrouter.ai':
-            payload['provider'] = {'require_parameters': True}
+    if httpx.URL(base_url).host == 'openrouter.ai':
+        provider = {'require_parameters': True} if response_schema is not None else {}
+        provider_sort = os.getenv('AI_PROVIDER_SORT', '').strip()
+        if provider_sort:
+            if provider_sort not in ('throughput', 'latency', 'price'):
+                raise HTTPException(503, 'AI 服务路由配置无效，请联系管理员')
+            provider['sort'] = provider_sort
+        if provider:
+            payload['provider'] = provider
     started = time.monotonic()
     diagnostic = {'requested_model': model, 'max_tokens': max_tokens, 'reasoning_effort': effort or 'default',
                   'format': payload.get('response_format', {}).get('type', 'text'), 'outcome': 'error'}

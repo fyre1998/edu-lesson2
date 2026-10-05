@@ -14,6 +14,7 @@ services:
       AI_MODEL: ${AI_MODEL:-}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-8192}
       AI_REASONING_EFFORT: ${AI_REASONING_EFFORT:-}
+      AI_PROVIDER_SORT: ${AI_PROVIDER_SORT:-}
       STT_BASE_URL: ${STT_BASE_URL:-}
       STT_API_KEY: ${STT_API_KEY:-}
       STT_MODEL: ${STT_MODEL:-openai/gpt-4o-mini-transcribe}

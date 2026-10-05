@@ -107,6 +107,9 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
                    for item in result.get('matches', [])]
         if hasattr(matching_curriculum(record.mapping_version), 'result_row'):
             matches = [matching_curriculum(record.mapping_version).result_row(item, catalogue) for item in result.get('matches', [])]
+        curriculum = matching_curriculum(record.mapping_version)
+        if hasattr(curriculum, 'result_rows') and record.status in ('ready', 'needs_clarification', 'unmatched'):
+            matches = curriculum.result_rows(result.get('matches', []), catalogue)
         return dict(version_id=version.id, revision=version.revision, status=record.status,
                     updated=record.updated, error=record.error, matches=matches,
                     questions=result.get('questions', []), uncovered=result.get('uncovered', []))

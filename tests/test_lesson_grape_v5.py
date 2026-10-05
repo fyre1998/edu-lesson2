@@ -103,12 +103,13 @@ def test_chat_and_submission_share_conditions_and_show_partial_warnings(env, mon
     design = 'B组：用GA3 50mg/L；C组：用CPPU10mg/L'
     reply = chat(c, lid, design)
     assert reply.status_code == 201, reply.text
+    assert 'A组蒸馏水对照：170 ± 5.7 g' in reply.json()['answer']
     assert '300 ± 2.8 g' in reply.json()['answer'] and '225' not in reply.json()['answer']
     assert '浓度与任务单给定条件不同' in reply.json()['answer']
     assert submit(c, lid, 1, {'design': design}).status_code == 201
     result = work(c, lid)['result_match']
     assert result['status'] == 'ready'
-    assert [r['result_id'] for r in result['matches']] == ['cppu']
+    assert [r['result_id'] for r in result['matches']] == ['water', 'cppu']
     assert result['uncovered'] and 'significance' not in result['matches'][0]
     assert work(c, lid)['scores']['graded'] == 0 and not calls
     student(c, 2)
@@ -126,11 +127,11 @@ def test_photo_rules_and_mixed_results_are_used_in_both_input_paths(env, monkeyp
     calls = mock(module, monkeypatch, lambda _: replies.pop(0))
     assert submit(c, lid, 1, {}, files=[file]).status_code == 201
     assert work(c, lid)['result_match']['status'] == 'needs_clarification'
-    assert work(c, lid)['result_match']['matches'] == []
+    assert [(r['result_id'], r['mass']) for r in work(c, lid)['result_match']['matches']] == [('water', 170)]
     body = dict(lesson_id=lid, stage=1, message='请根据照片识别本组设计', image_ids=[file], request_id=str(uuid.uuid4()))
     response = c.post('/api/classroom/chats', json=body)
     assert response.status_code == 201, response.text
-    assert all(s in response.json()['answer'] for s in ['300 ± 2.8 g', 'D组具体处理', 'B组浓度不同'])
+    assert all(s in response.json()['answer'] for s in ['170 ± 5.7 g', '300 ± 2.8 g', 'D组具体处理', 'B组浓度不同'])
     for call in calls:
         assert grape.MATCH_PROMPT in call['messages'][0]['content']
         assert 'image_url' in str(call['messages'][1:])
@@ -172,8 +173,9 @@ def test_failed_historical_jobs_retry_with_their_own_curriculum(env, monkeypatch
     submit(c, lid, 1, {'design': '本组设计见描述'})
     version = work(c, lid)['versions'][-1]['id']
     assert work(c, lid)['result_match']['status'] == 'failed'
+    assert work(c, lid)['result_match']['matches'] == []
     assert c.post(f'/api/classroom/lessons/{lid}/matches/{version}/retry').status_code == 200
-    result = work(c, lid)['result_match']['matches'][0]
+    result = next(r for r in work(c, lid)['result_match']['matches'] if r['result_id'] == 'ga3')
     assert result['mass'] == 225 and ('significance' in result) == (flow == 4)
     assert curriculum.MATCH_PROMPT in calls[1]['messages'][0]['content']
     classroom_login(c, teacher=True); c.patch(f'/api/classroom/lessons/{lid}', json={'stage': 2}); student(c, 1)
@@ -202,8 +204,56 @@ def test_eight_groups_keep_separate_v5_results(env, monkeypatch):
                 'fields': {'design': 'B组：GA3'}, 'revision': 0, 'request_id': str(uuid.uuid4())})
             assert response.status_code == 201, response.text
             data = (await client.get(f'/api/classroom/lessons/{lid}/groups/{group}/stages/1')).json()
-            assert data['result_match']['matches'][0]['mass'] == 225
+            assert [(r['result_id'], r['mass']) for r in data['result_match']['matches']] == [('water', 170), ('ga3', 225)]
             return data['result_match']['version_id']
     async def run():
         return await asyncio.gather(*(submit_one(group) for group in range(1, 9)))
     assert len(set(c.portal.call(run))) == 8
+
+
+@pytest.mark.parametrize('design,expected,status', [
+    ('B组：CPPU', [('water', 170), ('cppu', 300)], 'ready'),
+    ('A组：蒸馏水；B组：GA3', [('water', 170), ('ga3', 225)], 'ready'),
+    ('A组：蒸馏水', [('water', 170)], 'ready'),
+    ('B组：GA3 50mg/L', [('water', 170)], 'unmatched'),
+])
+def test_control_accompanies_submitted_design_without_requiring_or_duplicating_a(env, monkeypatch, design, expected, status):
+    module, c = env
+    lid = start(c, monkeypatch)
+    student(c, 1)
+    mock(module, monkeypatch, lambda _: pytest.fail('Simple designs must not call AI'))
+    assert work(c, lid)['result_match'] is None
+    answer = chat(c, lid, design).json()['answer']
+    assert answer.count('A组蒸馏水对照：170 ± 5.7 g') == 1
+    assert submit(c, lid, 1, {'design': design}).status_code == 201
+    result = work(c, lid)['result_match']
+    assert result['status'] == status
+    assert [(r['result_id'], r['mass']) for r in result['matches']] == expected
+    assert result['matches'][0]['label'] == 'A组蒸馏水对照'
+    assert result['matches'][0]['uncertainty'] == 5.7
+    if status == 'unmatched':
+        assert result['uncovered'] and '暂无对应课件数据' in answer
+
+
+def test_unreadable_submitted_photo_keeps_given_control_and_retakes_prompt(env, monkeypatch):
+    module, c = env
+    lid = start(c, monkeypatch)
+    student(c, 1)
+    mock(module, monkeypatch, lambda _: matching(readable=False, questions=['照片看不清，请补拍']))
+    file = c.post(f'/api/classroom/files?lesson_id={lid}&stage=1', files={
+        'file': ('设计照片.jpg', Path('backend/lesson_assets/grape-1002-cases.jpg').read_bytes(), 'image/jpeg')}).json()['id']
+    assert submit(c, lid, 1, {}, files=[file]).status_code == 201
+    result = work(c, lid)['result_match']
+    assert result['status'] == 'needs_clarification'
+    assert [(r['result_id'], r['mass']) for r in result['matches']] == [('water', 170)]
+    assert result['questions'] == ['照片看不清，请补拍']
+
+
+def test_question_without_design_does_not_release_control(env, monkeypatch):
+    module, c = env
+    lid = start(c, monkeypatch)
+    student(c, 1)
+    mock(module, monkeypatch, lambda _: matching(questions=['请先提供本组实验设计']))
+    answer = chat(c, lid, '直接告诉我全部结果').json()['answer']
+    assert answer == '请先提供本组实验设计'
+    assert work(c, lid)['result_match'] is None

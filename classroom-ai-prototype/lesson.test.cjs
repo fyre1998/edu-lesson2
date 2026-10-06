@@ -9,10 +9,10 @@ function setup(scriptURL){
   const el=s=>{if(!elements.has(s))elements.set(s,{value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},listeners:{},addEventListener(name,handler){this.listeners[name]=handler;},requestSubmit(){this.listeners.submit({preventDefault(){}});},classList:{add(){},remove(){},toggle(){},contains(){return false;}},insertAdjacentHTML(){},replaceChildren(){},setAttribute(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
   const fields=[{value:'观察',dataset:{field:'observation'}},{value:'假说',dataset:{field:'hypothesis'}}];
   const context=vm.createContext({document:{querySelector:el,querySelectorAll:s=>s==='[data-field]'?fields:[]},
-    FormData,Blob,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
+    ChatStream:require('./chat-stream.js'),FormData,Blob,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),crypto:require('node:crypto').webcrypto,
     createCameraCapture:options=>{cameraOptions=options;return {open(){},close(){}};},
     sessionStorage:{setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k),getItem:k=>local.get(k)},
-    fetch:(url,options)=>new Promise(resolve=>calls.push({url,body:options.body instanceof FormData?options.body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
+    fetch:(url,options)=>new Promise(resolve=>calls.push({url,headers:options.headers,replyRaw:resolve,body:options.body instanceof FormData?options.body:options.body?JSON.parse(options.body):null,reply:(data,status=200)=>resolve({ok:status<400,status,json:async()=>data})}))});
   if(scriptURL){
     context.URL=URL;context.document.currentScript={src:scriptURL};
     vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'paths.js'),'utf8'),context);
@@ -705,4 +705,46 @@ test('10.2 control appears with submitted results, never on initial entry, and k
   assert.equal((conversation.match(/170 ± 5.7/g)||[]).length,1);
   assert.match(conversation,/300 ± 2.8/);
   assert.match(h.run(`matchHTML(${JSON.stringify(result)},false)`),/蒸馏水/);
+});
+
+
+test('streaming chat paints escaped partial text before completion and saves one final bubble',async()=>{
+  const a=setup();a.run("S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}];S.user.name='第 1 组'");
+  a.el('#chatInput').value='请检查方案';
+  const pending=a.run('sendChat()');await tick();
+  assert.equal(a.calls[0].headers.Accept,'text/event-stream');
+  let controller;
+  a.calls[0].replyRaw(new Response(new ReadableStream({start(c){controller=c;}}),{status:201,headers:{'Content-Type':'text/event-stream'}}));
+  const emit=(kind,data)=>controller.enqueue(new TextEncoder().encode(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`));
+  emit('text',{text:'请先观察。<img onerror=alert(1)>'});await tick();
+  assert.equal(a.run('S.sending'),true);assert.equal(a.run('S.groups[0].chats.length'),0);
+  assert.match(a.el('#chatMessages').innerHTML,/请先观察/);
+  assert.match(a.el('#chatMessages').innerHTML,/&lt;img onerror/);
+  assert.doesNotMatch(a.el('#chatMessages').innerHTML,/<img onerror/);
+  emit('done',{id:99,question:'请检查方案',answer:'请先观察。再核对对照。',images:[]});
+  await pending;
+  assert.equal(a.run('S.sending'),false);assert.equal(a.run('S.groups[0].chats.length'),1);
+  assert.equal(a.run('S.pending'),null);
+});
+
+test('a broken stream marks partial text incomplete and retries the same request ID',async()=>{
+  const a=setup();a.run('S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}]');a.el('#chatInput').value='检查实验';
+  const pending=a.run('sendChat()');await tick();const id=a.calls[0].body.request_id;
+  a.calls[0].replyRaw(new Response('event: text\ndata: {"text":"请核对。"}\n\n',{status:201,headers:{'Content-Type':'text/event-stream'}}));
+  await pending;
+  assert.match(a.el('#chatMessages').innerHTML,/回复未完成/);assert.equal(a.run('S.groups[0].chats.length'),0);
+  const retry=a.run('sendChat(true)');await tick();
+  assert.equal(a.calls[1].body.request_id,id);assert.equal(a.run('S.pending.answer'),'');
+  a.calls[1].reply({id:1,question:'检查实验',answer:'完整答复。',images:[]},201);await retry;
+  assert.equal(a.run('S.groups[0].chats.length'),1);
+});
+
+test('late streamed text cannot enter a different lesson context',async()=>{
+  const a=setup();a.run('S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}]');a.el('#chatInput').value='检查实验';
+  const pending=a.run('sendChat()');await tick();
+  a.run('S.seq++;S.pending=null');
+  a.calls[0].replyRaw(new Response('event: text\ndata: {"text":"旧课的片段。"}\n\nevent: done\ndata: {"id":1,"answer":"旧课回答。"}\n\n',{status:201,headers:{'Content-Type':'text/event-stream'}}));
+  await pending;
+  assert.equal(a.run('S.pending'),null);assert.equal(a.run('S.groups[0].chats.length'),0);
+  assert.doesNotMatch(a.el('#chatMessages').innerHTML,/旧课的片段/);
 });

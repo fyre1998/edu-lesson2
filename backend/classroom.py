@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 from .ai_schemas import GUIDANCE_SCHEMA
+from .chat_stream import GuidancePreview, chat_stream_response
 
 ROSTER = [
     ['王晓彤', '赵文博', '许佳宁', '江子航'], ['孙语桐', '章明宇', '董欣然', '徐一帆'],
@@ -242,7 +243,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                             media_type=record.preview_type if preview else 'application/octet-stream',
                             content_disposition_type='inline' if preview else 'attachment')
 
-    async def ask_impl(body, user, session):
+    async def ask_impl(body, user, session, emit=None):
         if user.role != 'student':
             raise HTTPException(403, '请使用学生账号参与小组对话')
         if (body.lesson_id is None) != (body.stage is None):
@@ -341,8 +342,14 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
             grape_curriculum = curriculum_for(lesson_api.config(current_lesson)[0])
             schema = grape_curriculum.MATCH_SCHEMA
         direct = grape_curriculum.direct_matches(question) if grape_results and not image_records else None
-        answer = (json.dumps(direct, ensure_ascii=False) if direct is not None
-                  else await call_ai(messages, response_schema=schema))
+        options = {}
+        if emit is not None and not grape_results:
+            options['on_delta'] = GuidancePreview(emit,
+                lambda text: lesson_api.guard_answer(text, current_lesson, body.stage) if current_lesson else text,
+                structured=schema is not None)
+        # Experiment matches are validated as a whole before showing results.
+        session.commit()
+        answer = json.dumps(direct, ensure_ascii=False) if direct is not None else await call_ai(messages, response_schema=schema, **options)
         session.expire_all()
         if current_lesson:
             current_lesson=lesson_api.get(session,body.lesson_id,body.stage,write=True)
@@ -370,7 +377,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
         return result
 
     @router.post('/chats', status_code=201)
-    async def ask(body: MessageInput, user=Depends(identity), session=Depends(db)):
+    async def ask(body: MessageInput, request: Request, user=Depends(identity), session=Depends(db)):
         if user.role != 'student': raise HTTPException(403,'请使用小组身份对话')
         # An in-flight request keeps its authorized identity even if logout deletes
         # the session row. Cleanup must never reload that row after a rollback.
@@ -392,20 +399,29 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 if time.time()-old.created<180:raise HTTPException(409,'这条消息正在处理，请稍候再重试')
         if user.group_id in chat_running:
             raise HTTPException(409,'本组已有一条消息正在处理，请等待回复后再发送')
-        chat_running.add(user.group_id)
-        try:
-            if key:
-                if old:session.delete(old);session.flush()
-                session.add(cls(key=key,fingerprint=fp));session.commit()
-            return await ask_impl(body,user,session)
-        except BaseException:
-            session.rollback()
-            if key:
-                old=session.get(lesson_api.extensions.ChatRequest,key)
-                if old and not old.result:session.delete(old);session.commit()
-            raise
-        finally:
-            chat_running.discard(group_id)
+        async def process(emit=None):
+            # Reserve inside the stream worker so disconnecting before its first
+            # iteration cannot leave a group locked. Recheck without an await.
+            if group_id in chat_running:
+                raise HTTPException(409, '本组已有一条消息正在处理，请等待回复后再发送')
+            chat_running.add(group_id)
+            try:
+                if key:
+                    if old:session.delete(old);session.flush()
+                    session.add(cls(key=key,fingerprint=fp));session.commit()
+                return await ask_impl(body,user,session,emit)
+            except BaseException:
+                session.rollback()
+                if key:
+                    pending=session.get(lesson_api.extensions.ChatRequest,key)
+                    if pending and not pending.result:session.delete(pending);session.commit()
+                raise
+            finally:
+                chat_running.discard(group_id)
+
+        if 'text/event-stream' in request.headers.get('accept', ''):
+            return chat_stream_response(process)
+        return await process()
 
     from .speech import install_speech
     install_speech(router,Base,db,identity,lesson_api,rate_limit)

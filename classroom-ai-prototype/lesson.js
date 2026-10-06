@@ -43,9 +43,12 @@ function handleFieldVoiceClick(event) {
   if(!busy()&&!$('#field-'+key)?.disabled&&S.lesson?.status==='live')lessonVoice.start(key);
 }
 async function api(path, options={}) {
+  const {onText,...requestOptions}=options;
   const headers={'X-Workbench':'1'};
-  if(options.body && !(options.body instanceof FormData)) { headers['Content-Type']='application/json'; options.body=JSON.stringify(options.body); }
-  const response=await fetch(publicURL('/api/classroom'+path),{...options,headers,cache:'no-store'});
+  if(onText)headers.Accept='text/event-stream';
+  if(requestOptions.body && !(requestOptions.body instanceof FormData)) { headers['Content-Type']='application/json'; requestOptions.body=JSON.stringify(requestOptions.body); }
+  const response=await fetch(publicURL('/api/classroom'+path),{...requestOptions,headers,cache:'no-store'});
+  if(response.ok && response.headers?.get('content-type')?.includes('text/event-stream'))return ChatStream.read(response,onText);
   const data=await response.json().catch(()=>({}));
   if(!response.ok) { if(response.status===401 && path!=='/login') reset(); const e=new Error(typeof data.detail==='string'?data.detail:'请求未完成，请检查输入或网络后重试'); e.status=response.status; throw e; }
   return data;
@@ -459,13 +462,13 @@ function renderChat() {
   const g=S.groups.find(g=>g.id===S.user.groupId), box=$('#chatMessages');
   const versions=isInquiry()?(S.work?.versions||[]):[];
   let html=(S.content.opener?`<div class="chat-entry opener"><div class="speaker">本环节引导</div><p>${esc(S.content.opener)}</p></div>`:'')+chatsHTML(g?.chats||[],versions,S.work?.files||[]);
-  if(S.pending) html+=`<div class="chat-entry student"><div class="speaker">${esc(S.user.name)}</div><p>${esc(S.pending.message||'请查看这些图片。')}</p>${S.pending.images.map(f=>`<img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}">`).join('')}</div><div class="chat-entry"><p class="${S.pending.error?'error':'muted'}">${esc(S.pending.error||'AI 正在思考…')}</p>${S.pending.error?'<button id="retryChat">重试这条消息</button>':''}</div>`;
+  if(S.pending) html+=`<div class="chat-entry student"><div class="speaker">${esc(S.user.name)}</div><p>${esc(S.pending.message||'请查看这些图片。')}</p>${S.pending.images.map(f=>`<img src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}">`).join('')}</div><div class="chat-entry"><div class="speaker">AI 指导</div>${S.pending.answer?`<p>${esc(S.pending.answer)}</p>`:''}<p class="${S.pending.error?'error':'muted'}">${esc(S.pending.error?(S.pending.answer?'回复未完成：':'')+S.pending.error:S.pending.answer?'正在继续回答…':'AI 正在思考…')}</p>${S.pending.error?'<button id="retryChat">重试这条消息</button>':''}</div>`;
   if(box.innerHTML!==(html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>')) {box.innerHTML=html||'<p class="fine">可以围绕当前任务提问，或选择已上传的图片一起分析。</p>';const scroller=$('#conversationScroll');if(S.content.opener||(g?.chats?.length||0)>0||versions.length||S.pending)scroller.scrollTop=scroller.scrollHeight;}
   $('#quickPrompts').innerHTML=(S.content.content.prompts||[]).map(p=>`<button type="button" data-prompt="${esc(p)}">${esc(p)}</button>`).join('');
   $('#chatAttachments').innerHTML=[...S.images.values()].map(f=>`<div class="chat-attachment"><span>${esc(f.name)}</span><button type="button" data-remove-ai="${esc(f.id)}" aria-label="移除${esc(f.name)}">×</button></div>`).join('');
   renderVoiceControls();
   for(const id of ['#chatSubmit','#chatUpload','#chatCamera'])$(id).disabled=busy()||S.lesson.status!=='live';
-  $('#chatStatus').textContent=S.sending?'正在分析…':S.user.ai_ready?'仅发送文字与选中图片':'AI 暂未配置，仍可提交成果';
+  $('#chatStatus').textContent=S.sending?(S.pending?.answer?'正在回答…':'正在思考…'):S.user.ai_ready?'仅发送文字与选中图片':'AI 暂未配置，仍可提交成果';
 }
 async function sendChat(retry=false) {
   if(S.sending || S.uploading || !S.lesson || S.lesson.status!=='live') return;
@@ -475,8 +478,8 @@ async function sendChat(retry=false) {
   S.sending=true; renderChat();
   try {
     if(!await saveWork(false) || seq!==S.seq || !S.user) return;
-    p.error=null; S.pending=p; S.images.clear(); $('#chatInput').value=''; renderChat();
-    const reply=await api('/chats',{method:'POST',body:{request_id:p.request_id,lesson_id:lessonId,stage,message:p.message,image_ids:p.images.map(f=>f.id)}});
+    p.error=null; p.answer=''; S.pending=p; S.images.clear(); $('#chatInput').value=''; renderChat();
+    const reply=await api('/chats',{method:'POST',onText:text=>{if(seq===S.seq&&S.user&&S.pending===p){p.answer=text;renderChat();}},body:{request_id:p.request_id,lesson_id:lessonId,stage,message:p.message,image_ids:p.images.map(f=>f.id)}});
     if(seq!==S.seq||!S.user) return;
     S.pending=null; const g=S.groups.find(g=>g.id===S.user.groupId);
     if(!g.chats.some(c=>c.id===reply.id))g.chats.push({id:reply.id,question:reply.question,answer:reply.answer,images:reply.images,author:S.user.name,created:reply.created||Date.now()/1000});

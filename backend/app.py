@@ -21,6 +21,7 @@ from sqlalchemy import String, Text, Integer, ForeignKey, select, delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, Session
 
+from .chat_stream import read_completion_stream
 from .database import create_database_engine
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -318,7 +319,7 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
 
 
-async def call_ai(messages, *, json_output=False, response_schema=None):
+async def call_ai(messages, *, json_output=False, response_schema=None, on_delta=None):
     key, model = os.getenv('AI_API_KEY'), os.getenv('AI_MODEL')
     if not key or not model:
         raise HTTPException(503, 'AI 尚未配置，请联系教师或管理员')
@@ -356,6 +357,12 @@ async def call_ai(messages, *, json_output=False, response_schema=None):
         # httpx read timeout resets on every chunk; enforce a total deadline too.
         async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
             async with httpx.AsyncClient(timeout=120) as client:
+                if on_delta is not None:
+                    answer = await read_completion_stream(client, base_url + '/chat/completions',
+                        {'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
+                        payload, on_delta, diagnostic)
+                    diagnostic['outcome'] = 'success'
+                    return answer
                 upstream = await client.post(base_url + '/chat/completions',
                     headers={'Authorization': 'Bearer ' + key, 'HTTP-Referer': ORIGIN, 'X-OpenRouter-Title': 'Zhiban Classroom'},
                     json=payload)

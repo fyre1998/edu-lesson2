@@ -424,6 +424,28 @@ test('initial guide is brought into view even when materials are longer than the
   assert.match(a.el('#chatMessages').innerHTML,/本环节第一轮问题/);
 });
 
+test('reply updates preserve history reading and resume following when the reader returns to the bottom',()=>{
+  const a=setup(),scroll=a.el('#conversationScroll');
+  Object.assign(scroll,{scrollHeight:1600,clientHeight:400,scrollTop:0});
+  a.run("S.pending={message:'检查方案',images:[],answer:'先检查对照。'};renderChat()");
+  scroll.scrollTop=320;
+  a.run("S.pending.answer+='再核对变量。';renderChat()");
+  assert.equal(scroll.scrollTop,320);
+  assert.match(a.el('#chatMessages').innerHTML,/再核对变量/);
+  scroll.scrollTop=1180;
+  a.run("S.pending.answer+='保持其他条件相同。';renderChat()");
+  assert.equal(scroll.scrollTop,1600);
+});
+
+test('entering another stage shows its latest content even if its messages match the previous stage',()=>{
+  const a=setup(),scroll=a.el('#conversationScroll');
+  Object.assign(scroll,{scrollHeight:1600,clientHeight:400,scrollTop:0});
+  a.run("S.content.opener='请检查对照条件';renderChat()");
+  scroll.scrollTop=320;
+  a.run('renderChat()');assert.equal(scroll.scrollTop,320);
+  a.run('S.stage=2;renderChat()');assert.equal(scroll.scrollTop,1600);
+});
+
 test('chat locks before draft save so rapid clicks create one AI request',async()=>{
   const a=setup();a.run("S.content.content.prompts=[];S.groups=[{id:1,chats:[]}];S.user.name='第 1 组'");
   a.el('#chatInput').value='请检查我们的预测';
@@ -710,8 +732,13 @@ test('10.2 control appears with submitted results, never on initial entry, and k
 
 test('streaming chat paints escaped partial text before completion and saves one final bubble',async()=>{
   const a=setup();a.run("S.edit=S.savedEdit=0;S.groups=[{id:1,chats:[]}];S.user.name='第 1 组'");
+  const scroll=a.el('#conversationScroll');
+  Object.assign(scroll,{scrollHeight:1600,clientHeight:400,scrollTop:0});
+  a.run('renderChat()');scroll.scrollTop=320;
   a.el('#chatInput').value='请检查方案';
   const pending=a.run('sendChat()');await tick();
+  assert.equal(scroll.scrollTop,1600);
+  scroll.scrollTop=320;
   assert.equal(a.calls[0].headers.Accept,'text/event-stream');
   let controller;
   a.calls[0].replyRaw(new Response(new ReadableStream({start(c){controller=c;}}),{status:201,headers:{'Content-Type':'text/event-stream'}}));
@@ -721,10 +748,12 @@ test('streaming chat paints escaped partial text before completion and saves one
   assert.match(a.el('#chatMessages').innerHTML,/请先观察/);
   assert.match(a.el('#chatMessages').innerHTML,/&lt;img onerror/);
   assert.doesNotMatch(a.el('#chatMessages').innerHTML,/<img onerror/);
+  assert.equal(scroll.scrollTop,320);
   emit('done',{id:99,question:'请检查方案',answer:'请先观察。再核对对照。',images:[]});
   await pending;
   assert.equal(a.run('S.sending'),false);assert.equal(a.run('S.groups[0].chats.length'),1);
   assert.equal(a.run('S.pending'),null);
+  assert.equal(scroll.scrollTop,320);
 });
 
 test('a broken stream marks partial text incomplete and retries the same request ID',async()=>{

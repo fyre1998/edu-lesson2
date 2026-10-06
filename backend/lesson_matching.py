@@ -25,7 +25,7 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
         error: Mapped[str] = mapped_column(String(200), default='')
         updated: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
-    slots = asyncio.Semaphore(4)
+    slots = asyncio.Semaphore(8)
     active = set()
 
     def queue(session, version, background):

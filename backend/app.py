@@ -17,9 +17,11 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFi
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, String, Text, Integer, ForeignKey, select, delete, func
+from sqlalchemy import String, Text, Integer, ForeignKey, select, delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, Session
+
+from .database import create_database_engine
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / '.env')
@@ -37,7 +39,7 @@ SECURE = ORIGIN.startswith('https://')
 MAX_FILE = 10 * 1024 * 1024
 AI_REQUEST_TIMEOUT_SECONDS = 120
 ai_logger = logging.getLogger('uvicorn.error')
-engine = create_engine(URL, connect_args={'check_same_thread': False} if URL.startswith('sqlite') else {}, pool_pre_ping=True)
+engine = create_database_engine(URL)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 

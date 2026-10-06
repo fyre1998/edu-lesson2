@@ -33,7 +33,8 @@ def test_proxy_subpath_preserves_login_uploads_and_first_lesson_cookie(tmp_path,
                         headers={'X-Workbench': '1', 'Origin': 'https://lsclass.top'}) as client:
             client.cookies.set('classroom_session', 'first-lesson-token', domain='lsclass.top', path='/')
             landing = client.get('/lesson/')
-            assert landing.status_code == 200 and '第二节课' in landing.text
+            assert landing.status_code == 200 and 'lesson.js' in landing.text
+            assert client.get('/lesson/api/health').json()['app'] == 'lesson2_edu'
             assert 'blob:' in landing.headers['content-security-policy']
             for path in ['paths.js', 'lesson.js', 'lesson.css', 'workspace/', 'workspace/paths.js']:
                 assert client.get('/lesson/' + path).status_code == 200

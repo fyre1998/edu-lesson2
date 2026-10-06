@@ -62,6 +62,8 @@ python scripts/start_classroom_preview.py --foreground
 
 ## 测试
 
+结果识别和成果评分各允许8个后台任务同时执行，合计最多16个；课堂聊天、教师汇总和语音转写另行运行。应用连接池按需建立最多30个连接（`DB_POOL_SIZE=20`、`DB_MAX_OVERFLOW=10`），给后台任务和页面请求留出余量。内存SQLite保留原有连接池。修改配置后需要重启本地服务，Docker部署需重新创建应用容器；每个worker或副本各有独立连接池，扩容时应核对所有进程的连接总预算和数据库的`max_connections`，为管理连接留出空间。
+
 ```powershell
 .venv\Scripts\python.exe -m pytest tests -q
 node --test classroom-ai-prototype/*.test.cjs

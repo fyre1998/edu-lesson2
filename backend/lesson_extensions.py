@@ -69,7 +69,7 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
         result: Mapped[str] = mapped_column(Text, default='')
         created: Mapped[int] = mapped_column(Integer, default=lambda:int(time.time()))
 
-    grading_slots = asyncio.Semaphore(4)
+    grading_slots = asyncio.Semaphore(8)
     extracting = set()
 
     def picture_parts(session, ids, lesson_id, group_id, stage):

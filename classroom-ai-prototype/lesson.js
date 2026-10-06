@@ -60,6 +60,7 @@ function reset() {
   S.edit=S.savedEdit=0; clearTimeout(S.draftTimer); camera?.close();
   $$('dialog[open]').forEach(d=>d.close());
   $('#app').classList.remove('student-view');
+  globalThis.classroomSidebar?.reset();
   show('#loginScreen',true); show('#app',false); $('#teacherPassword').value='';
   $('#workFields').replaceChildren(); $('#chatMessages').replaceChildren(); $('#groupDetail').replaceChildren();
 }
@@ -71,6 +72,7 @@ function names() {
 async function activate(user) {
   S.user=user; S.seq++; S.group=user.groupId||1; S.pending=null; S.images.clear();
   $('#app').classList.toggle('student-view',user.role==='student');
+  globalThis.classroomSidebar?.reset();
   show('#loginScreen',false); show('#app',true); $('#teacherPassword').value='';
   $('#identityLabel').textContent=isTeacher()?`${user.name} · 教师`:`第 ${user.groupId} 组`;
   setAI(true);
@@ -81,6 +83,7 @@ function lessonOptions() {
   if(S.lesson) $('#lessonSelect').value=S.lesson.id;
 }
 async function loadLessons(preferred) {
+  globalThis.classroomSidebar?.reset();
   closePresentation();
   closeSummaryPresentation();
   resetScoreBubble();
@@ -97,6 +100,7 @@ async function loadLessons(preferred) {
   await loadStage(S.lesson.stage);
 }
 async function loadStage(stage) {
+  globalThis.classroomSidebar?.reset();
   closePresentation();
   closeSummaryPresentation();
   camera.close();

@@ -1,0 +1,61 @@
+/* 仅学生使用抽屉导航；教师侧栏的尺寸、定位及导航样式保持原状。 */
+.sidebar-toggle { display: none; }
+
+@media screen {
+  .student-view.app { display: block; --student-sidebar-width: min(260px, calc(100vw - 48px)); }
+  .student-view main { width: 100%; height: 100dvh; }
+  .student-view .sidebar-toggle {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 301;
+    width: 24px;
+    min-height: 56px;
+    padding: 0;
+    border: 1px solid #ffffff35;
+    border-left: 0;
+    border-radius: 0 10px 10px 0;
+    color: white;
+    background: var(--navy);
+    box-shadow: 3px 0 12px #173c3326;
+    transition: left 180ms ease;
+  }
+  .student-view .sidebar-toggle:hover { background: var(--blue); border-color: #ffffff50; }
+  .student-view .sidebar-toggle > span { width: 8px; height: 8px; border-right: 2px solid currentColor; border-top: 2px solid currentColor; transform: rotate(45deg); margin-left: -3px; }
+  .student-view.sidebar-open .sidebar-toggle { left: var(--student-sidebar-width); }
+  .student-view.sidebar-open .sidebar-toggle > span { transform: rotate(-135deg); margin-left: 3px; }
+  .student-view .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 300;
+    width: var(--student-sidebar-width);
+    height: 100dvh;
+    padding: 18px 16px;
+    gap: 18px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 180ms ease, visibility 180ms;
+  }
+  .student-view.sidebar-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: 12px 0 36px #173c332b;
+  }
+  .student-view .side-label { display: block; margin: 0 0 -12px; }
+  .student-view .sidebar > select { display: block; flex: none; }
+  .student-view .sidebar nav { display: grid; overflow: visible; margin: 7px 0 0; gap: 7px; }
+  .student-view .stage-button { grid-template-columns: 28px 1fr; padding: 12px 8px; gap: 8px; }
+  .student-view .stage-button .step-no { width: 26px; height: 26px; }
+  .student-view .stage-button .stage-name { font-size: .88rem; }
+  .student-view .stage-button small { display: block; font-size: .74rem; }
+  .student-view .side-bottom { display: grid; justify-content: stretch; margin-top: auto; padding-top: 15px; gap: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-view .sidebar, .student-view .sidebar-toggle { transition: none; }
+}

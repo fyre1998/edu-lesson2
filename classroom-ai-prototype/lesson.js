@@ -93,6 +93,7 @@ async function loadLessons(preferred) {
   S.lessons=await api('/lessons');
   S.lesson=S.lessons.find(l=>l.id===preferred)||S.lessons.find(l=>l.status==='live')||S.lessons[0]||null;
   lessonOptions(); show('#emptyState',!S.lesson); show('#lessonSurface',!!S.lesson);
+  show('#lessonHeading',!!S.lesson); show('#groupBadge',!!S.lesson);
   if(!S.lesson) {
     $('#stageNav').innerHTML='';
     $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>怎样用植物激素优化葡萄的产量与品质？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="植物激素与葡萄增产"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
@@ -471,7 +472,6 @@ function renderChat({scrollToLatest=false}={}) {
   const updateScroll=changed || box.dataset.context!==context || scrollToLatest;
   if(changed)box.innerHTML=html;
   box.dataset.context=context;
-  $('#quickPrompts').innerHTML=(S.content.content.prompts||[]).map(p=>`<button type="button" data-prompt="${esc(p)}">${esc(p)}</button>`).join('');
   $('#chatAttachments').innerHTML=[...S.images.values()].map(f=>`<div class="chat-attachment"><span>${esc(f.name)}</span><button type="button" data-remove-ai="${esc(f.id)}" aria-label="移除${esc(f.name)}">×</button></div>`).join('');
   renderVoiceControls();
   for(const id of ['#chatSubmit','#chatUpload','#chatCamera'])$(id).disabled=busy()||S.lesson.status!=='live';
@@ -704,7 +704,6 @@ $('#chatInput').addEventListener('keydown',e=>{
   if(e.repeat||$('#chatInput').readOnly||$('#sendButton').disabled||busy())return;
   $('#chatForm').requestSubmit();
 });
-$('#quickPrompts').addEventListener('click',e=>{const b=e.target.closest('[data-prompt]');if(b){$('#chatInput').value=b.dataset.prompt;$('#chatInput').focus();}});
 $('#chatAttachments').addEventListener('click',e=>{const b=e.target.closest('[data-remove-ai]');if(b){S.images.delete(b.dataset.removeAi);renderChat();}});
 $('#refreshButton').addEventListener('click',async()=>{if(!await flush())return;try{if(S.lesson)await loadStage(S.stage);else await loadLessons();}catch{}});
 $('#emptyState').addEventListener('click',e=>{if(e.target.closest('#createLessonButton'))createLesson().catch(e=>toast(e.message));});

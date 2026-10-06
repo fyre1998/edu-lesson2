@@ -228,7 +228,7 @@ function renderExtras() {
 }
 function fileHTML(f,actions=false) {
   const url=publicURL('/api/classroom/files/'+encodeURIComponent(f.id)), included=S.work?.work.file_ids.includes(f.id);
-  return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'||S.uploading||S.submitting?'disabled':''}>${included?'已附成果':'附到成果'}</button>${f.preview?`<button type="button" data-ai-image="${esc(f.id)}">交给 AI</button>`:''}</div>`:''}</div>`;
+  return `<div class="file-row">${f.preview?`<a href="${url}?preview=true" target="_blank" rel="noopener"><img src="${url}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:''}<div class="file-meta"><a href="${url}" download>${esc(f.name)}</a><small>${esc(f.uploader)} · ${(f.size/1024).toFixed(1)} KB</small></div>${actions?`<div class="file-buttons"><button type="button" data-attach="${esc(f.id)}" class="${included?'selected-file':''}" ${S.lesson.status!=='live'||S.uploading||S.submitting?'disabled':''}>${included?'已附成果':'附到成果'}</button></div>`:''}</div>`;
 }
 function fieldsHTML(fields, projection=false) {
   const list=S.content.content.fields.filter(f=>(!f.hidden||(f.legacy&&fields[f.key]))&&(!projection||String(fields[f.key]??'').trim()));
@@ -695,7 +695,7 @@ $('#workFields').addEventListener('input',e=>{if(!e.target.matches('[data-field]
 $('#workForm').addEventListener('submit',async e=>{e.preventDefault();if(S.uploading||S.extracting)return toast('请先等待上传或识别完成');await submitFinalWork();});
 $('#saveButton').addEventListener('click',()=>saveWork(false));
 $('#uploadButton').addEventListener('click',()=>choosePicture(null));$('#cameraButton').addEventListener('click',()=>choosePicture(null,true));$('#fileInput').addEventListener('change',e=>uploadFiles([...e.target.files]));
-$('#workFiles').addEventListener('click',e=>{const a=e.target.closest('[data-attach]'),b=e.target.closest('[data-ai-image]');if(a){if(S.lesson.status!=='live'||S.uploading||S.submitting)return;const id=a.dataset.attach,ids=S.work.work.file_ids;if(ids.includes(id))S.work.work.file_ids=ids.filter(x=>x!==id);else if(ids.length<12)ids.push(id);else return toast('一次成果最多关联 12 份附件');markDirty();renderExtras();}if(b){const f=S.work.files.find(f=>f.id===b.dataset.aiImage);if(S.images.size>=4||[...S.images.values()].reduce((n,f)=>n+f.size,0)+f.size>20*1024*1024)return toast('一次最多 4 张图片，合计不超过 20 MB');S.images.set(f.id,f);setAI(true);renderChat();}});
+$('#workFiles').addEventListener('click',e=>{const a=e.target.closest('[data-attach]');if(a){if(S.lesson.status!=='live'||S.uploading||S.submitting)return;const id=a.dataset.attach,ids=S.work.work.file_ids;if(ids.includes(id))S.work.work.file_ids=ids.filter(x=>x!==id);else if(ids.length<12)ids.push(id);else return toast('一次成果最多关联 12 份附件');markDirty();renderExtras();}});
 
 $('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat();});$('#chatMessages').addEventListener('click',e=>{if(e.target.closest('#retryChat'))sendChat(true);});
 $('#chatInput').addEventListener('keydown',e=>{

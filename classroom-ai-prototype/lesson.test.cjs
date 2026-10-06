@@ -22,7 +22,7 @@ function setup(scriptURL){
   vm.runInContext(source.slice(0,source.indexOf('\nconst camera=')),context);
   vm.runInContext(source.slice(source.indexOf('const camera='),source.indexOf("\n$('#loginGroup')")),context);
   vm.runInContext(source.slice(source.indexOf("$('#workFiles').addEventListener"),source.indexOf("\n$('#chatForm').addEventListener")),context);
-  vm.runInContext(source.slice(source.indexOf("$('#chatForm').addEventListener"),source.indexOf("$('#quickPrompts').addEventListener")),context);
+  vm.runInContext(source.slice(source.indexOf("$('#chatForm').addEventListener"),source.indexOf("$('#refreshButton').addEventListener")),context);
   vm.runInContext("Object.assign(S,{user:{role:'student',groupId:1},lesson:{id:'lesson',status:'live'},stage:1,content:{content:{fields:[]}},work:{work:{revision:0,file_ids:[],fields:{}},files:[],versions:[],assignment:null},edit:1,savedEdit:0});",context);
   return{calls,fields,local,el,timers,camera:cameraOptions,run:code=>vm.runInContext(code,context)};
 }

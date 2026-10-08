@@ -150,4 +150,4 @@ def install_matching(router, Base, db, identity, check_group, get_lesson, config
             background.add_task(run, session.get_bind(), version_id)
         return {'status': 'pending'}
 
-    return SimpleNamespace(queue=queue, read=read)
+    return SimpleNamespace(Match=Match, queue=queue, read=read)

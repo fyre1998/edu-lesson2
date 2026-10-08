@@ -135,6 +135,14 @@ def test_chat_stream_is_visible_before_completion_and_recovers(env, monkeypatch,
             assert not operation.done()  # The model is still waiting at release.
             with module.engine.connect() as db:
                 assert db.execute(text('select count(*) from classroom_chats')).scalar() == 0
+            work_url = f'/api/classroom/lessons/{lid}/groups/1/stages/1'
+            snapshot = await asyncio.to_thread(client.get, work_url)
+            assert snapshot.json()['submission_wait'] == '等待 AI 回复…'
+            submission = await asyncio.to_thread(client.post,
+                f'/api/classroom/lessons/{lid}/stages/1/submissions',
+                json={'fields': {}, 'revision': 0, 'request_id': str(uuid.uuid4())})
+            assert submission.status_code == 409
+            assert '等待 AI 回复' in submission.json()['detail']
             if outcome == 'disconnect': disconnect.set()
             else: release.set()
             await asyncio.wait_for(operation, 5)
@@ -149,6 +157,7 @@ def test_chat_stream_is_visible_before_completion_and_recovers(env, monkeypatch,
 
     asyncio.run(run())
     retry = client.post('/api/classroom/chats', json=body)
+    assert client.get(f'/api/classroom/lessons/{lid}/groups/1/stages/1').json()['submission_wait'] == ''
     assert retry.status_code == 201, retry.text
     cached = client.post('/api/classroom/chats', json=body, headers={'Accept': 'text/event-stream'})
     assert cached.json() == retry.json()

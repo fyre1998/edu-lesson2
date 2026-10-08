@@ -52,7 +52,7 @@ class AssignmentInput(BaseModel):
     reason: str = Field(min_length=2, max_length=500)
 
 
-def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, ChatImage, file_info, uploads, call_ai):
+def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, ChatImage, file_info, uploads, call_ai, chat_running):
     class Lesson(Base):
         __tablename__ = 'lesson_runs'
         id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -398,6 +398,24 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
                     result_match=matching.read(session, version),
                     assessment=extensions.version_score(session, version, user))
 
+    def submission_wait(session, lesson_id, group_id, stage):
+        if group_id in chat_running:
+            return '等待 AI 回复…'
+        latest = session.scalar(select(Version).where(Version.lesson_id == lesson_id,
+            Version.group_id == group_id, Version.stage == stage).order_by(Version.revision.desc()).limit(1))
+        if not latest:
+            return ''
+        result = session.get(matching.Match, latest.id)
+        score = session.get(extensions.Assessment, latest.id)
+        waiting = lambda record: record is not None and record.status in ('pending', 'processing')
+        if waiting(result) and waiting(score):
+            return '等待 AI 结果与评分…'
+        if waiting(result):
+            return '等待 AI 结果…'
+        if waiting(score):
+            return '等待 AI 评分…'
+        return ''
+
     @router.get('/lessons/{lesson_id}/groups/{group_id}/stages/{stage}')
     def get_group_work(lesson_id: str, group_id: int, stage: int, user=Depends(identity), session=Depends(db)):
         check_group(user, group_id); lesson = get_lesson(session, lesson_id, stage)
@@ -405,6 +423,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         record = session.get(Work, (lesson_id, group_id, stage))
         rows = versions(session, lesson_id, group_id, stage)
         return dict(work=work_dict(record), versions=[version_details(session, v, user) for v in rows],
+                    submission_wait=submission_wait(session, lesson_id, group_id, stage),
                     result_match=matching.read(session, rows[-1]) if rows else None,
                     files=files_for(session, lesson_id, group_id, stage), assignment=assigned(session, lesson_id, group_id, user) if stage == assignment_stage(lesson) else None,
                     scores=extensions.scores(session, lesson, group_id, user))
@@ -427,6 +446,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
                     if prev.data != data or prev.file_ids != file_ids:
                         raise HTTPException(409, '提交编号已使用，请重新提交')
                     return dict(**work_dict(prev), submission_id=prev.id)
+                waiting = submission_wait(session, lesson_id, user.group_id, stage)
+                if waiting:
+                    raise HTTPException(409, waiting.rstrip('…') + '，完成后可再次提交。')
             record = session.get(Work, (lesson_id, user.group_id, stage))
             if body.revision != (record.revision if record else 0):
                 raise HTTPException(409, '同组另一台设备已修改，请先查看最新版本；当前文字仍保留在页面')

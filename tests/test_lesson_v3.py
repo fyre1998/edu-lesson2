@@ -256,6 +256,9 @@ def test_late_jobs_never_replace_latest_submission(env, monkeypatch):
     responses = [matching('mica_light_side'), matching('gelatin_separator'), scoring(), scoring((10, 0, 10))]
     mock(module, monkeypatch, lambda _: responses.pop(0))
     assert submit(c, lid, 1, {'design': '明胶隔层'}).status_code == 201
+    # A failed older job may still return late, but an active one now blocks resubmission.
+    with module.engine.begin() as db:
+        db.execute(text("update lesson_design_matches set status='failed'"))
     latest = submit(c, lid, 1, {'design': '向光侧插入云母片'}, revision=1).json()['submission_id']
     async def backwards():
         for fn, args, kw in reversed(queued): await fn(*args, **kw)
@@ -265,6 +268,8 @@ def test_late_jobs_never_replace_latest_submission(env, monkeypatch):
     assert current['result_match']['matches'][0]['result_id'] == 'mica_light_side'
     classroom_login(c, teacher=True); c.patch(f'/api/classroom/lessons/{lid}', json={'stage': 2}); student(c, 1)
     submit(c, lid, 2, {'design': '中央放置'})
+    with module.engine.begin() as db:
+        db.execute(text("update lesson_assessments set status='failed'"))
     latest = submit(c, lid, 2, {'design': '偏放，并设有效对照'}, revision=1).json()['submission_id']
     asyncio.run(backwards())
     current = work(c, lid, 2)

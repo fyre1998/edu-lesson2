@@ -16,6 +16,29 @@ function isTeacher() { return S.user?.role==='teacher'; }
 function base() { return '/lessons/'+encodeURIComponent(S.lesson.id); }
 function draftKey() { return `lesson2:${S.user.groupId}:${S.lesson.id}:${S.stage}`; }
 function busy() { return S.uploading || S.sending || S.loading || S.submitting || S.extracting; }
+function submissionWaitReason() {
+  if(S.sending)return '等待 AI 回复…';
+  const latest=S.work?.versions?.at(-1), syncing=S.submissionSync;
+  if(syncing && syncing.lesson===S.lesson?.id && syncing.stage===S.stage && syncing.group===S.user?.groupId &&
+     (latest?.revision||0)<syncing.revision)return '等待提交结果同步…';
+  if(S.work?.submission_wait)return S.work.submission_wait;
+  const waiting=item=>['pending','processing'].includes(item?.status);
+  const result=S.work?.result_match;
+  const score=S.work?.scores?.stages.find(item=>item.stage===S.stage);
+  const resultPending=waiting(result), scorePending=waiting(score);
+  if(resultPending && scorePending)return '等待 AI 结果与评分…';
+  if(resultPending)return '等待 AI 结果…';
+  if(scorePending)return '等待 AI 评分…';
+  return '';
+}
+function renderSubmissionControls() {
+  const reason=submissionWaitReason(), disabled=!!(busy() || reason || S.lesson?.status!=='live');
+  const label=S.submitting?'正在提交…':reason||(isInquiry()?(isGrape()?(S.stage===1?'提交设计并获取实验结果':'提交增产方案并评分'):(S.stage===1?'提交思路并获取结果图':'提交设计并评分')):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果');
+  for(const id of ['#submitButton','#chatSubmit']) {
+    $(id).disabled=disabled; $(id).textContent=label;
+  }
+  for(const id of ['#cameraButton','#chatCamera'])$(id).disabled=!!(busy() || (isInquiry()&&reason) || S.lesson?.status!=='live');
+}
 function renderVoiceControls() {
   const voice=globalThis.lessonVoice, state=voice?.state||'idle', target=voice?.target;
   const active=state!=='idle', chatActive=active&&target==='chat', unavailable=S.lesson?.status!=='live';
@@ -23,7 +46,7 @@ function renderVoiceControls() {
   $('#voiceStart').disabled=active||busy()||unavailable;
   $('#voiceStatus').textContent=target==='chat'?voiceLabel:'';
   $('#chatInput').readOnly=active;
-  $('#sendButton').disabled=active||S.sending||unavailable;
+  $('#sendButton').disabled=active||busy()||unavailable;
   $$('[data-voice-field]').forEach(button=>{
     const key=button.dataset.voiceField, current=active&&target===key, recording=current&&state==='recording';
     button.textContent=recording?'停止并填入':current?{requesting:'正在准备…',stopping:'正在结束…',transcribing:'正在转写…',sending:'正在填入…'}[state]:'语音填写';
@@ -59,7 +82,7 @@ function reset() {
   $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel();
-  S.seq++; S.user=null; S.lesson=null; S.content=null; S.work=null; S.pending=null; S.images.clear();
+  S.seq++; S.user=null; S.lesson=null; S.content=null; S.work=null; S.pending=null; S.submissionSync=null; S.images.clear();
   S.edit=S.savedEdit=0; clearTimeout(S.draftTimer); camera?.close();
   $$('dialog[open]').forEach(d=>d.close());
   $('#app').classList.remove('student-view');
@@ -111,7 +134,7 @@ async function loadStage(stage) {
   $('#lessonMaterials').open=false;
   resetScoreBubble();
   globalThis.lessonVoice?.cancel(); S.modelNotice=''; S.selectedScientist=null;
-  const seq=++S.seq, lessonId=S.lesson.id; S.loading=true; S.pending=null; S.images.clear(); S.submitAttempt=null;
+  const seq=++S.seq, lessonId=S.lesson.id; S.loading=true; S.pending=null; S.images.clear(); S.submitAttempt=null; S.submissionSync=null;
   try {
     const content=await api(`/lessons/${lessonId}/stages/${stage}`);
     const [groups,work]=await Promise.all([api(`/lessons/${lessonId}/groups?stage=${stage}`),
@@ -200,7 +223,8 @@ function versionExtras(v,actions=true) {
 function syncSubmissionResults(work) {
   // Poll results without overwriting a draft that the student is still typing.
   if((work.versions?.at(-1)?.revision||0)<(S.work.versions?.at(-1)?.revision||0))return;
-  S.work.versions=work.versions; S.work.result_match=work.result_match; S.work.scores=work.scores;
+  if(work.versions)S.work.versions=work.versions;
+  S.work.result_match=work.result_match; S.work.scores=work.scores; S.work.submission_wait=work.submission_wait;
 }
 function assignmentLocksDesign(a) { return !!a && a.design_locked!==false; }
 function assignmentNotice() {
@@ -219,7 +243,7 @@ function renderExtras() {
   $('#workState').textContent=count?(w.work.revision>last.revision?'已修改，待提交':'已提交'):w.work.revision?'草稿未提交':'未开始';
   if(isModel()&&last?.fields.phase==='model')$('#workState').textContent='模型已提交，待讨论';
   show('#submitRow',true);
-  $('#submitButton').textContent=isInquiry()?(isGrape()?(S.stage===1?'提交设计并获取实验结果':'提交增产方案并评分'):(S.stage===1?'提交思路并获取结果图':'提交设计并评分')):isModel()&&collectFields().phase==='discussion'?'提交讨论答案':'提交本组成果';
+  renderSubmissionControls();
   $('#versionCount').textContent=count?`（${count} 次）`:'';
   if(isInquiry())renderChat();
   if(typeof renderModel==='function')renderModel();
@@ -256,12 +280,15 @@ function markDirty() {
   clearTimeout(S.draftTimer); S.draftTimer=setTimeout(()=>saveWork(false),900);
 }
 function submitFinalWork(){
+  const reason=submissionWaitReason();
+  if(reason || busy()) { toast(reason?reason.replace(/…$/,'')+'，完成后可再次提交。':'请先等待当前上传或提交完成。'); return Promise.resolve(false); }
   if(isModel()){$('#field-phase').value='discussion';markDirty();}
   return saveWork(true);
 }
 function saveWork(submit=false) {
   if(submit && S.submitting) return S.saveChain;
-  if(submit) { S.submitting=true; $('#submitButton').disabled=true; $$('[data-field]').forEach(el=>el.disabled=true); }
+  if(submit && submissionWaitReason()) { toast(submissionWaitReason().replace(/…$/,'')+'，完成后可再次提交。'); return Promise.resolve(false); }
+  if(submit) { S.submitting=true; renderSubmissionControls(); renderVoiceControls(); $$('[data-field]').forEach(el=>el.disabled=true); }
   clearTimeout(S.draftTimer);
   const context={id:S.lesson?.id,stage:S.stage,group:S.user?.groupId};
   const perform=async()=>{
@@ -285,13 +312,13 @@ function saveWork(submit=false) {
       $('#saveStatus').textContent=(submit?'提交已保存 · ':'已保存 · ')+stamp(result.updated);
       if(submit) {
         S.submitAttempt=null;
+        S.submissionSync={lesson:context.id,stage:context.stage,group:context.group,revision:result.revision};
         try { await refreshWork(false); }
         catch { toast('提交已保存，结果暂未同步，请稍后刷新查看，无需再次提交。'); return true; }
         toast(fields.phase==='model'?'模型图已提交，现在可在原图上放置科学家姓名。':fields.phase==='discussion'?'讨论答案已提交。':'本组成果已提交，后续修改会保留新版本。');
       }
       return true;
     } catch(e) { $('#saveStatus').textContent=e.message; localDraft(); toast(e.message); return false; }
-    finally { if(S.user && S.lesson?.id===context.id && S.stage===context.stage) $('#submitButton').disabled=S.lesson.status!=='live'; }
   };
   const queued=S.saveChain.then(perform,perform).finally(()=>{if(submit){S.submitting=false;if(S.user&&!isTeacher()&&S.lesson?.id===context.id&&S.stage===context.stage)renderExtras();}}); S.saveChain=queued; return queued;
 }
@@ -301,8 +328,17 @@ async function refreshWork(replaceFields=false) {
   if(seq!==S.seq || !S.user || group!==(isTeacher()?S.group:S.user.groupId)) return;
   if(isTeacher()) { S.work=work; renderDetail(); return; }
   if(S.edit===S.savedEdit && work.work.revision>=S.work.work.revision) { S.work=work; if(replaceFields) renderStudent(); else renderExtras(); }
-  else if(isInquiry()) { syncSubmissionResults(work); renderExtras(); }
-  else if(JSON.stringify(S.work.assignment)!==JSON.stringify(work.assignment)) { S.work.assignment=work.assignment; renderExtras(); }
+  else { syncSubmissionResults(work); S.work.assignment=work.assignment; renderExtras(); }
+}
+async function pollSubmission() {
+  if(!S.user || isTeacher() || !isInquiry() || S.lesson?.status!=='live' ||
+     S.syncing || busy() || document.hidden || !S.work) return;
+  if(!submissionWaitReason()) return;
+  // Refresh only this group's result while it is waiting, keeping unsaved edits.
+  S.syncing=true;
+  try { await refreshWork(); if(S.user && S.work) renderScores(); }
+  catch(e) { /* The normal poll still reports persistent network errors. */ }
+  finally { S.syncing=false; }
 }
 async function poll() {
   if(!S.user || S.syncing || S.loading || document.hidden) return;
@@ -329,11 +365,10 @@ async function poll() {
       if(S.edit===S.savedEdit && !S.submitting && w.work.revision>=S.work.work.revision) {
         const revisionChanged=w.work.revision!==S.work.work.revision;
         S.work=w;
-        if(revisionChanged) renderStudent(); else if(isInquiry() || JSON.stringify(w.assignment)!==$('#assignmentArea').dataset.snapshot || reveal) renderExtras();
+        if(revisionChanged) renderStudent(); else renderExtras();
         $('#assignmentArea').dataset.snapshot=JSON.stringify(w.assignment);
       }
-      else if(isInquiry()) { syncSubmissionResults(w); renderExtras(); }
-      else if(JSON.stringify(S.work.assignment)!==JSON.stringify(w.assignment)) { S.work.assignment=w.assignment; renderExtras(); }
+      else { syncSubmissionResults(w); S.work.assignment=w.assignment; renderExtras(); }
     }
     renderChat(); renderScores(); $('#syncStatus').textContent='已同步 · '+new Date().toLocaleTimeString('zh-CN');
   } catch(e) { $('#syncStatus').textContent='同步失败，可手动刷新'; }
@@ -475,11 +510,12 @@ function renderChat({scrollToLatest=false}={}) {
   $('#chatAttachments').innerHTML=[...S.images.values()].map(f=>`<div class="chat-attachment"><span>${esc(f.name)}</span><button type="button" data-remove-ai="${esc(f.id)}" aria-label="移除${esc(f.name)}">×</button></div>`).join('');
   renderVoiceControls();
   for(const id of ['#chatSubmit','#chatUpload','#chatCamera'])$(id).disabled=busy()||S.lesson.status!=='live';
+  renderSubmissionControls();
   $('#chatStatus').textContent=S.sending?(S.pending?.answer?'正在回答…':'正在思考…'):S.user.ai_ready?'仅发送文字与选中图片':'AI 暂未配置，仍可提交成果';
   if(updateScroll)scroller.scrollTop=followLatest?scroller.scrollHeight:previousTop;
 }
 async function sendChat(retry=false) {
-  if(S.sending || S.uploading || !S.lesson || S.lesson.status!=='live') return;
+  if(busy() || !S.lesson || S.lesson.status!=='live') return;
   const p=retry?S.pending:{message:$('#chatInput').value.trim(),images:[...S.images.values()],request_id:crypto.randomUUID()};
   if(!p || (!p.message&&!p.images.length)) return;
   const seq=S.seq, lessonId=S.lesson.id, stage=S.stage;
@@ -502,6 +538,7 @@ function filesForNextUpload() {
 }
 async function uploadFiles(files,{submitToAI=false}={}) {
   if(!S.lesson||busy()||S.lesson.status!=='live'||!files.length) return false;
+  if(submitToAI && isInquiry() && submissionWaitReason()) { toast(submissionWaitReason().replace(/…$/,'')+'，完成后可再次提交。'); return false; }
   const seq=S.seq,target=isModel()?(S.uploadTarget||pictureTarget()):null,autoSubmit=submitToAI&&isInquiry(),selectedIds=filesForNextUpload(); S.uploading=true; let count=0, attached=0;
   try {
     renderExtras();
@@ -760,4 +797,4 @@ $('#voiceStart').addEventListener('click',()=>{if(!busy()&&S.lesson?.status==='l
 $('#voiceStop').addEventListener('click',()=>lessonVoice.stop());$('#voiceCancel').addEventListener('click',()=>lessonVoice.cancel());
 $('#workFields').addEventListener('click',handleFieldVoiceClick);
 $('#chatUpload').addEventListener('click',()=>choosePicture(pictureTarget()));$('#chatCamera').addEventListener('click',()=>choosePicture(pictureTarget(),true));$('#chatSubmit').addEventListener('click',()=>{if(!busy())submitFinalWork();});
-boot();setInterval(poll,5000);
+boot();setInterval(poll,5000);setInterval(pollSubmission,1000);

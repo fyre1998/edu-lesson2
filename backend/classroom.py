@@ -111,7 +111,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
 
     from .lesson import install_lesson_routes
     lesson_api = install_lesson_routes(router, Base, db, identity, check_group, ClassroomFile,
-                                      ClassroomChat, ClassroomChatImage, file_info, uploads, call_ai)
+                                      ClassroomChat, ClassroomChatImage, file_info, uploads, call_ai, chat_running)
 
     @router.post('/login')
     def login(body: ClassroomLogin, request: Request, response: Response, session=Depends(db)):

@@ -777,3 +777,68 @@ test('late streamed text cannot enter a different lesson context',async()=>{
   assert.equal(a.run('S.pending'),null);assert.equal(a.run('S.groups[0].chats.length'),0);
   assert.doesNotMatch(a.el('#chatMessages').innerHTML,/旧课的片段/);
 });
+
+test('AI chat blocks both submission buttons from draft saving through reply completion',async()=>{
+  const a=setup();a.run('S.groups=[{id:1,chats:[]}]');a.el('#chatInput').value='请检查方案';
+  const chat=a.run('sendChat()');
+  assert.equal(a.el('#submitButton').disabled,true);
+  assert.equal(a.el('#chatSubmit').disabled,true);
+  assert.equal(await a.run('submitFinalWork()'),false);
+  await tick();a.calls[0].reply({revision:1,updated:10});await tick();
+  assert.equal(await a.run('saveWork(true)'),false);
+  a.calls[1].reply({id:1,question:'请检查方案',answer:'请检查变量。',images:[]},201);await chat;
+  assert.equal(a.el('#submitButton').disabled,false);
+  assert.equal(a.el('#chatSubmit').disabled,false);
+  assert.equal(a.calls.filter(c=>c.url.endsWith('/submissions')).length,0);
+});
+
+test('server-reported same-group chat locks survive refresh and clear without discarding edits',async()=>{
+  const a=setup();a.run("S.work.submission_wait='等待 AI 回复…';renderExtras()");
+  assert.equal(a.el('#submitButton').disabled,true);
+  const refresh=a.run('refreshWork()');a.calls[0].reply({...photoWork(),submission_wait:''});await refresh;
+  assert.equal(a.el('#submitButton').disabled,false);
+  assert.equal(a.fields[0].value,'观察');
+});
+
+
+function guardedGrapeWork(stage,status='pending'){
+  const w=photoWork();
+  w.versions[0].fields={design:'上次提交的方案'};
+  const score={stage:2,version_id:stage===2?'v1':null,status:stage===2?status:'unsubmitted',total:null,maximum:100,items:[],history:[]};
+  w.scores={stages:[score],total:0,graded:0};
+  w.result_match=stage===1?{version_id:'v1',revision:1,status,matches:[],questions:[],uncovered:[]}:null;
+  w.versions[0].result_match=w.result_match;
+  w.versions[0].assessment=stage===2?score:null;
+  return w;
+}
+for(const stage of [1,2])for(const status of ['pending','processing','ready','failed','needs_clarification'])test(`grape stage ${stage} submission controls follow ${status} after reload`,async()=>{
+  const a=photoSetup(stage),blocked=['pending','processing'].includes(status);
+  a.run(`S.lesson.flow_version=5;S.work=${JSON.stringify(guardedGrapeWork(stage,status))};renderExtras()`);
+  for(const selector of ['#submitButton','#chatSubmit','#cameraButton','#chatCamera'])assert.equal(a.el(selector).disabled,blocked);
+  assert.equal(a.fields[0].disabled,false);
+  if(blocked){
+    assert.match(a.el('#submitButton').textContent,/等待 AI/);
+    assert.equal(await a.run('submitFinalWork()'),false);
+    assert.equal(await a.run('saveWork(true)'),false);
+    assert.equal(await a.camera.onConfirm(photo()),false);
+    assert.equal(a.calls.length,0);
+  }
+});
+for(const stage of [1,2])test(`grape stage ${stage} waits through a failed post-submit refresh and restores controls after polling`,async()=>{
+  const a=photoSetup(stage);a.run('S.lesson.flow_version=5');
+  const submitted=a.run('submitFinalWork()');await tick();
+  a.calls[0].reply({revision:1,updated:10,submission_id:'v1'},201);await tick();
+  a.calls[1].reply({detail:'同步失败'},503);assert.equal(await submitted,true);
+  assert.equal(a.el('#submitButton').disabled,true);
+  assert.equal(await a.run('submitFinalWork()'),false);
+  assert.equal(await a.camera.onConfirm(photo()),false);
+  const waiting=a.run('pollSubmission()');a.calls[2].reply(guardedGrapeWork(stage));await waiting;
+  assert.equal(a.el('#chatSubmit').disabled,true);
+  a.fields[0].value='正在修订的新方案';a.run('S.edit++;localDraft()');
+  const draft=a.run('saveWork(false)');await tick();a.calls[3].reply({revision:2,updated:11});await draft;
+  a.run('S.edit++');
+  const completed=a.run('pollSubmission()');a.calls[4].reply(guardedGrapeWork(stage,'ready'));await completed;
+  assert.equal(a.el('#submitButton').disabled,false);assert.equal(a.el('#chatSubmit').disabled,false);
+  assert.equal(a.fields[0].value,'正在修订的新方案');
+  assert.equal(a.calls.filter(c=>c.url.endsWith('/submissions')).length,1);
+});

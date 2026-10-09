@@ -108,13 +108,13 @@ function scoreHTML(scores,teacher=false){
   if(!scores)return '';
   const stages=teacher?scores.stages:scores.stages.filter(s=>s.stage===S.stage);
   const heading=teacher?`<div class="score-heading"><strong>本组积分 ${scores.graded?scores.total:'—'} <small>/ 100</small></strong><span class="fine">${scores.graded} / ${scores.stages.length} 个计分环节已有评分</span></div>`:'';
-  return `${heading}${teacher?teacherFeedbackHTML(scores):''}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${displayedScore(s)?.total??'—'} / ${displayedScore(s)?.maximum??s.maximum} · ${s.retained_score?'保留上次得分 · 新提交':''}${scoreStatus[s.status]||s.status}</summary>${retainedScoreHTML(s)}${scoreHistoryHTML(s)}${s.clarification?`<p class="notice">${esc(s.clarification)}</p>`:''}${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&s.stage!==S.stage&&completedScore(s)?studentFeedbackHTML(s):''}${teacher&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
+  return `${heading}${teacher?teacherFeedbackHTML(scores):''}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${displayedScore(s)?.total??'—'} / ${displayedScore(s)?.maximum??s.maximum} · ${s.retained_score?'保留上次得分 · 新提交':''}${scoreStatus[s.status]||s.status}</summary>${retainedScoreHTML(s)}${scoreHistoryHTML(s)}${s.clarification?`<p class="notice">${esc(s.clarification)}</p>`:''}${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&s.stage!==S.stage&&completedScore(s)?studentFeedbackHTML(s):''}${teacher&&S.user?.role==='teacher'&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
 }
 function renderScores(){
-  const g=S.groups.find(g=>g.id===(isTeacher()?S.group:S.user?.groupId));
-  renderStudentScore(!isTeacher()&&isInquiry()?S.work?.scores||g?.scores:g?.scores);
+  const g=S.groups.find(g=>g.id===(isTeacherView()?S.group:S.user?.groupId));
+  renderStudentScore(!isTeacherView()&&isInquiry()?S.work?.scores||g?.scores:g?.scores);
   for(const [id,teacher] of [['#teacherScore',true]]){
-    const el=$(id);if(!el||(teacher&&!isTeacher()))continue;
+    const el=$(id);if(!el||(teacher&&!isTeacherView()))continue;
     const snapshot=JSON.stringify([S.stage,g?.id,g?.scores,teacher]);if(el.dataset.scoreSnapshot===snapshot)continue;
     const states=new Map($$(id+' details[data-score-stage]').map(d=>[d.dataset.scoreStage,d.open]));el.innerHTML=scoreHTML(g?.scores,teacher);
     $$(id+' details[data-score-stage]').forEach(d=>{if(states.has(d.dataset.scoreStage))d.open=states.get(d.dataset.scoreStage);});el.dataset.scoreSnapshot=snapshot;
@@ -122,6 +122,7 @@ function renderScores(){
   }
 }
 function editScore(id){
+  if(!isTeacher())return;
   const score=S.groups.find(g=>g.id===S.group)?.scores?.stages.find(s=>s.version_id===id);if(!score)return;
   $('#scoreVersion').value=id;$('#scoreFields').innerHTML=score.items.map(i=>`<label>${esc(i.label)}（0–${i.maximum}）<input type="number" min="0" max="${i.maximum}" step="1" required data-score-key="${i.key}" value="${i.points??0}"></label>`).join('');$('#scoreReason').value='';$('#scoreDialog').showModal();
 }

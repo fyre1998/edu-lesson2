@@ -201,7 +201,7 @@ test('text-only revisions keep selected photos without affecting previous submis
   assert.deepEqual([...a.run('S.work.versions[0].file_ids')],['old-0']);
 });
 test('teacher summary escapes evidence and retains complete issues during updates and failures',()=>{
-  const a=setup();
+  const a=setup();a.run("S.user={role:'teacher'}");
   const data={status:'ready',submitted:1,evaluated:1,group_count:8,updated:null,groups:[{group_id:2,status:'processing'}],
     result:{overview:'<script>不要执行</script>',issues:[{title:'两侧未比较',detail:'缺少依据',group_ids:[1],suggestion:'重点检查两侧比较依据。',evidence:[{group_id:1,quote:'<img src=x onerror=bad>'}]}],sources:[{group_id:1,revision:3}],discussion:[]}};
   const html=a.run(`teacherSummaryHTML(${JSON.stringify(data)})`);
@@ -977,4 +977,78 @@ test('teacher submitted images use the second lesson URL prefix',()=>{
   assert.match(html,/href="\/lesson\/api\/classroom\/files\/new-photo\?preview=true"/);
   assert.match(html,/src="\/lesson\/api\/classroom\/files\/new-photo-2\?preview=true"/);
   assert.doesNotMatch(html,/(?:src|href)="\/api\//);
+});
+
+test('observer entry signs in with one click and sends no classroom credentials',async()=>{
+  const a=setup();
+  a.run("S.user=null;globalThis.activated=null;activate=async user=>{activated=user;}");
+  a.el('#classCode').value='';a.el('#teacherPassword').value='';
+  a.run(source.slice(source.indexOf("$('#observerLogin').addEventListener"),source.indexOf("$$('[data-role]')")));
+  const pending=a.el('#observerLogin').listeners.click();
+  await a.el('#observerLogin').listeners.click();
+  assert.equal(a.calls.length,1);
+  assert.deepEqual(a.calls[0].body,{role:'observer'});
+  a.calls[0].reply({role:'observer',name:'课堂观察',groupId:null});await pending;
+  assert.equal(a.run('activated.role'),'observer');
+  assert.equal(a.el('#observerLogin').disabled,false);
+});
+
+test('observer frame retains teacher browsing and projection without classroom controls',()=>{
+  const a=setup();
+  a.run("S.user={role:'observer'};S.lesson={id:'lesson',status:'live',stage:2,unlocked:2,flow_version:3};S.stage=2;S.content={content:{question:'研究问题'},stages:[{id:1,title:'环节一',open:true},{id:2,title:'环节二',open:true}]};renderFrame();");
+  assert.equal(a.el('#groupBadge').textContent,'课堂观察');
+  assert.match(a.el('#lessonReadOnly').textContent,/只读/);
+  assert.equal((a.el('#stageNav').innerHTML.match(/disabled/g)||[]).length,2);
+  assert.match(a.el('#teacherControls').innerHTML,/成果投屏/);
+  assert.doesNotMatch(a.el('#teacherControls').innerHTML,/切换并开放|归档|开始新课|分发|teacherStage/);
+  a.run("S.user={role:'teacher'};renderFrame()");
+  assert.match(a.el('#teacherControls').innerHTML,/切换并开放/);
+  assert.match(a.el('#teacherControls').innerHTML,/归档本课/);
+});
+
+test('observer hides result, score and summary retry buttons but retains teacher feedback',()=>{
+  const a=setup(),scores=teacherFeedbackFixture();
+  scores.stages[0].status='failed';
+  a.run("S.user={role:'observer'};S.lesson.flow_version=3;S.stage=2");
+  const html=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  assert.match(html,/评分依据/);
+  assert.doesNotMatch(html,/data-score-edit|data-score-retry/);
+  const result=a.run("matchHTML({status:'failed',version_id:'v1',revision:1,matches:[],questions:[],uncovered:[],error:'待重试'})");
+  assert.match(result,/待重试/);assert.doesNotMatch(result,/data-match-retry/);
+  const version=a.run("versionExtras({id:'v1',assessment:{status:'failed',total:null,items:[]}})");
+  assert.doesNotMatch(version,/data-inquiry-score-retry/);
+  assert.doesNotMatch(a.run("teacherSummaryHTML({status:'failed',submitted:0,evaluated:0,group_count:8,groups:[]})"),/data-summary-retry/);
+  a.run(`renderStudentScore(${JSON.stringify(scores)})`);
+  assert.equal(a.el('#studentScoreBubble').dataset.context,undefined);
+});
+
+test('observer frontend refuses writes and old history requests',async()=>{
+  const a=setup();a.run("S.user={role:'observer'}");
+  for(const method of ['POST','PUT','PATCH','DELETE'])await assert.rejects(a.run(`api('/lessons/lesson',{method:'${method}',body:{}})`),/只能查看/);
+  await a.run('legacy()');
+  assert.equal(a.calls.length,0);
+  const read=a.run("api('/lessons')");a.calls[0].reply([]);await read;
+  const logout=a.run("api('/logout',{method:'POST'})");a.calls[1].reply({ok:true});await logout;
+});
+
+test('observer follows teacher stage changes automatically',async()=>{
+  const a=setup();
+  a.run("S.user={role:'observer'};S.edit=S.savedEdit=0;S.lastTeacherStage=1;globalThis.loadedStage=null;loadStage=async stage=>{loadedStage=stage;}");
+  const pending=a.run('poll()');
+  a.calls[0].reply([{id:'lesson',status:'live',stage:2}]);await pending;
+  assert.equal(a.run('loadedStage'),2);
+  assert.equal(a.run('S.lastTeacherStage'),2);
+});
+
+test('archiving removes observer content and waits without offering lesson creation',async()=>{
+  const a=setup();
+  a.run("S.user={role:'observer'};S.edit=S.savedEdit=0;S.lastTeacherStage=1");
+  a.el('#groupDetail').innerHTML='旧课详情';
+  a.el('#groupDetail').replaceChildren=function(){this.innerHTML='';};
+  const pending=a.run('poll()');a.calls[0].reply([]);await tick();
+  a.calls[1].reply([]);await pending;
+  assert.equal(a.run('S.lesson'),null);assert.equal(a.run('S.work'),null);
+  assert.equal(a.el('#groupDetail').innerHTML,'');
+  assert.match(a.el('#emptyState').innerHTML,/等待老师/);
+  assert.doesNotMatch(a.el('#emptyState').innerHTML,/createLessonButton/);
 });

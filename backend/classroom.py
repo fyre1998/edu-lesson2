@@ -32,10 +32,10 @@ SESSION_COOKIE = 'lesson2_classroom_session'
 
 
 class ClassroomLogin(BaseModel):
-    role: Literal['student', 'teacher']
+    role: Literal['student', 'teacher', 'observer']
     name: str = Field(default="", max_length=40)
     groupId: int | None = Field(default=None, ge=1, le=8)
-    code: str = Field(min_length=1, max_length=128)
+    code: str = Field(default='', max_length=128)
     teacherPassword: str = Field(default='', max_length=128)
 
 
@@ -90,6 +90,28 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
         record = session.get(ClassroomSession, digest(request.cookies.get(SESSION_COOKIE, '')))
         if not record or record.expires <= time.time():
             raise HTTPException(401, '请先登录课堂')
+        if record.role == 'observer':
+            # Enforce read-only access for every authenticated classroom route,
+            # including retry, AI and upload endpoints added in the future.
+            route = request.scope['route']
+            if request.method not in ('GET', 'HEAD') and route.name != 'logout':
+                raise HTTPException(403, '课堂观察只能查看，不能修改课堂内容')
+            if route.name == 'groups':
+                raise HTTPException(403, '课堂观察不能查看旧课记录')
+            lesson_id = request.path_params.get('lesson_id')
+            file_id = request.path_params.get('file_id')
+            if file_id:
+                context = session.get(lesson_api.FileContext, file_id)
+                if not context:
+                    raise HTTPException(404, '资料不存在')
+                lesson_id = context.lesson_id
+            if lesson_id:
+                lesson = lesson_api.get(session, lesson_id)
+                if lesson.status != 'live':
+                    raise HTTPException(404, '课堂观察仅可查看当前课堂')
+                stage = request.path_params.get('stage', request.query_params.get('stage'))
+                if stage is not None and str(stage) != str(lesson.stage):
+                    raise HTTPException(403, '课堂观察跟随教师当前环节，不能切换环节')
         if record.role == 'teacher' and record.name == '沈老师':
             record.name = '赵老师'
             session.commit()
@@ -101,7 +123,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 'ai_model': os.getenv('AI_MODEL', '')}
 
     def check_group(user, group_id):
-        if user.role != 'teacher' and user.group_id != group_id:
+        if user.role not in ('teacher', 'observer') and user.group_id != group_id:
             raise HTTPException(404, '资料不存在')
 
     def file_info(record):
@@ -116,7 +138,7 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
     @router.post('/login')
     def login(body: ClassroomLogin, request: Request, response: Response, session=Depends(db)):
         rate_limit(('classroom-login', request.client.host), 30, 900)
-        if not hmac.compare_digest(body.code.encode(), os.getenv('CLASSROOM_CODE', 'BIO-LESSON2').encode()):
+        if body.role != 'observer' and not hmac.compare_digest(body.code.encode(), os.getenv('CLASSROOM_CODE', 'BIO-LESSON2').encode()):
             raise HTTPException(401, '课堂邀请码不正确')
         if body.role == 'teacher':
             password = os.getenv('CLASSROOM_TEACHER_PASSWORD', '')
@@ -124,12 +146,12 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 raise HTTPException(503, '教师登录尚未配置，请联系管理员')
             if body.name not in TEACHERS or not hmac.compare_digest(body.teacherPassword.encode(), password.encode()):
                 raise HTTPException(401, '教师账号或访问密码不正确')
-        elif not body.groupId or (body.name and body.name != f'第 {body.groupId} 组' and (body.groupId>len(ROSTER) or body.name not in ROSTER[body.groupId - 1])):
+        elif body.role == 'student' and (not body.groupId or (body.name and body.name != f'第 {body.groupId} 组' and (body.groupId>len(ROSTER) or body.name not in ROSTER[body.groupId - 1]))):
             raise HTTPException(401, '学生姓名与小组不匹配')
         session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
         session.execute(delete(ClassroomSession).where(ClassroomSession.expires <= int(time.time())))
         token = secrets.token_urlsafe(32)
-        user = ClassroomSession(token=digest(token), role=body.role, name=body.name if body.role=='teacher' or body.name else f'第 {body.groupId} 组',
+        user = ClassroomSession(token=digest(token), role=body.role, name='课堂观察' if body.role == 'observer' else body.name if body.role=='teacher' or body.name else f'第 {body.groupId} 组',
                                 group_id=body.groupId if body.role == 'student' else None,
                                 expires=int(time.time()) + 43200)
         session.add(user)

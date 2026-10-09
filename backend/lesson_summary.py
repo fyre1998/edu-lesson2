@@ -225,8 +225,8 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
                     groups=[{k: s[k] for k in ('group_id', 'version_id', 'revision', 'status')} for s in states],
                     result=result)
 
-    def authorized(session, lesson_id, user):
-        teacher(user)
+    def authorized(session, lesson_id, user, *, read_only=False):
+        teacher(user, read_only=read_only)
         lesson = get_lesson(session, lesson_id, 2)
         if config(lesson)[0] not in INQUIRY_FLOWS:
             raise HTTPException(404, '本课次没有方案问题汇总')
@@ -234,10 +234,10 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
 
     @router.get('/lessons/{lesson_id}/design-summary')
     def get_summary(lesson_id: str, background: BackgroundTasks, user=Depends(identity), session=Depends(db)):
-        lesson = authorized(session, lesson_id, user)
+        lesson = authorized(session, lesson_id, user, read_only=True)
         data = read(session, lesson)
         abandoned = data['status'] == 'processing' and time.time() - (data['updated'] or 0) > 180
-        if data['stale'] or abandoned:
+        if user.role == 'teacher' and (data['stale'] or abandoned):
             background.add_task(refresh, session.get_bind(), lesson_id)
         return data
 

@@ -67,7 +67,7 @@ function scoreForLatestSubmission(score, versions = []) {
 }
 function renderStudentScore(scores) {
   const bubble = $('#studentScoreBubble');
-  if (!S.user || isTeacher() || !S.lesson || ![2, 3, 4, 5].includes(S.lesson.flow_version) || !scores) {
+  if (!S.user || S.user?.role !== 'student' || !S.lesson || ![2, 3, 4, 5].includes(S.lesson.flow_version) || !scores) {
     resetScoreBubble(); return;
   }
   let score = scores.stages.find(s => s.stage === S.stage);
@@ -112,7 +112,7 @@ function renderStudentScore(scores) {
 }
 function reviseScoredWork() {
   if (busy()) return toast('请先等待当前上传、提交或回复完成。');
-  if (!S.lesson || S.lesson.status !== 'live' || isTeacher()) return;
+  if (!S.lesson || S.lesson.status !== 'live' || S.user?.role !== 'student') return;
   setScoreBubbleExpanded(false);
   const key = S.groups.find(g => g.id === S.user.groupId)?.scores?.stages.find(s => s.stage === S.stage)?.feedback?.improvements[0]?.key;
   const fields = $$('[data-field]').filter(el => !el.disabled && el.type !== 'hidden');

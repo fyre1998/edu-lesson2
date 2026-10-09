@@ -318,3 +318,5 @@ dialog{border:1px solid var(--line);border-radius:18px;color:var(--ink);padding:
 .teacher-current-feedback>h3{margin:0 0 12px;font-size:1.05rem}.teacher-current-feedback .feedback-version{margin:0 0 12px}.teacher-current-feedback section+section{margin-top:16px}.teacher-current-feedback section h3{font-size:.92rem;margin:0 0 6px}.teacher-current-feedback ul,.teacher-current-feedback ol{padding-left:22px;margin:0;line-height:1.8}.teacher-current-feedback li{overflow-wrap:anywhere}
 
 .teacher-submitted-work{margin:22px 0;min-width:0}.teacher-submitted-work>h3{margin:0 0 10px}.teacher-submitted-work .record-image{width:100%;max-width:100%;max-height:none;height:auto;object-fit:contain}
+
+.observer-login { width: 100%; margin-top: 12px; }

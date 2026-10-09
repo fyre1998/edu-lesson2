@@ -155,8 +155,8 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         lesson_id: Mapped[str] = mapped_column(ForeignKey('lesson_runs.id'), index=True)
         stage: Mapped[int] = mapped_column(Integer)
 
-    def teacher(user):
-        if user.role != 'teacher':
+    def teacher(user, *, read_only=False):
+        if user.role != 'teacher' and not (read_only and user.role == 'observer'):
             raise HTTPException(403, '仅教师可以操作课堂进度')
 
     def get_lesson(session, lesson_id, stage=None, write=False):
@@ -293,8 +293,11 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
 
     @router.get('/lessons')
     def list_lessons(user=Depends(identity), session=Depends(db)):
-        rows = session.scalars(select(Lesson).order_by(Lesson.created.desc(), Lesson.id)).all()
-        return [public_lesson(r) for r in rows if user.role == 'teacher' or user.group_id <= config(r)[1]]
+        query = select(Lesson).order_by(Lesson.created.desc(), Lesson.id)
+        if user.role == 'observer':
+            query = query.where(Lesson.status == 'live')
+        rows = session.scalars(query).all()
+        return [public_lesson(r) for r in rows if user.role in ('teacher', 'observer') or user.group_id <= config(r)[1]]
 
     @router.post('/lessons', status_code=201)
     def create_lesson(body: NewLesson, user=Depends(identity), session=Depends(db)):
@@ -346,7 +349,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     @router.get('/lessons/{lesson_id}/stages/{stage}')
     def get_stage(lesson_id: str, stage: int, user=Depends(identity), session=Depends(db)):
         lesson = get_lesson(session, lesson_id, stage)
-        if user.role != 'teacher': group_exists(lesson, user.group_id)
+        if user.role == 'student': group_exists(lesson, user.group_id)
         return dict(lesson=public_lesson(lesson), stage=stage, title=curriculum_for(config(lesson)[0]).TITLE if config(lesson)[0] in GRAPE_FLOWS else v3.mutant.TITLE if config(lesson)[0] == 3 else TITLE, content=deepcopy(stages_for(lesson)[stage]),
                     stages=[dict(id=n, title=s['title'], minutes=s['minutes'], open=n <= lesson.unlocked) for n, s in stages_for(lesson).items()],
                     materials=materials(lesson, stage), opener=(curriculum_for(config(lesson)[0]).OPENERS.get(stage) if config(lesson)[0] in (2, 3, 4, 5) else None),
@@ -356,7 +359,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     @router.get('/lessons/{lesson_id}/materials/{material_id}/assets/{asset}')
     def material_asset(lesson_id: str, material_id: str, asset: str, user=Depends(identity), session=Depends(db)):
         lesson = get_lesson(session, lesson_id)
-        if user.role != 'teacher': group_exists(lesson, user.group_id)
+        if user.role == 'student': group_exists(lesson, user.group_id)
         allowed = visible_materials(lesson, lesson.unlocked)
         if not any(m['id'] == material_id and asset in m['assets'] for m in allowed):
             raise HTTPException(403, '材料尚未开放或不存在')
@@ -557,7 +560,7 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
 
     @router.get('/lessons/{lesson_id}/scenarios/{treatment}')
     def scenario_choices(lesson_id: str, treatment: str, user=Depends(identity), session=Depends(db)):
-        teacher(user); lesson = get_lesson(session, lesson_id)
+        teacher(user, read_only=True); lesson = get_lesson(session, lesson_id)
         if config(lesson)[0] in INQUIRY_FLOWS:
             raise HTTPException(404, '本课没有旧版假设图组')
         if config(lesson)[0] == 2:
@@ -570,21 +573,21 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
 
     @router.get('/lessons/{lesson_id}/scenarios/{treatment}/{variant}.svg')
     def preview_scenario(lesson_id: str, treatment: str, variant: int, user=Depends(identity), session=Depends(db)):
-        teacher(user); get_lesson(session, lesson_id)
+        teacher(user, read_only=True); get_lesson(session, lesson_id)
         if treatment not in TREATMENTS or treatment == 'custom' or variant not in range(3):
             raise HTTPException(404, '图组不存在')
         return Response(result_svg(treatment, variant), media_type='image/svg+xml')
 
     @router.get('/lessons/{lesson_id}/scenarios/{treatment}/{variant}.png')
     def preview_expected_result(lesson_id: str, treatment: str, variant: int, user=Depends(identity), session=Depends(db)):
-        teacher(user); lesson = get_lesson(session, lesson_id)
+        teacher(user, read_only=True); lesson = get_lesson(session, lesson_id)
         if config(lesson)[0] != 2 or treatment != expected.TREATMENT or variant not in range(3):
             raise HTTPException(404, '图组不存在')
         return FileResponse(ASSETS / expected.ASSETS[variant], media_type='image/png', headers={'Cache-Control': 'no-store'})
 
     @router.get('/lessons/{lesson_id}/events')
     def events(lesson_id: str, user=Depends(identity), session=Depends(db)):
-        teacher(user); get_lesson(session, lesson_id)
+        teacher(user, read_only=True); get_lesson(session, lesson_id)
         return [dict(id=e.id, group_id=e.group_id, kind=e.kind, detail=json.loads(e.detail), author=e.author, created=e.created)
                 for e in session.scalars(select(Event).where(Event.lesson_id == lesson_id).order_by(Event.id)).all()]
 
@@ -598,10 +601,10 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     @router.get('/lessons/{lesson_id}/groups')
     def overview(lesson_id: str, stage: int, user=Depends(identity), session=Depends(db)):
         lesson = get_lesson(session, lesson_id, stage)
-        if user.role != 'teacher': group_exists(lesson, user.group_id)
+        if user.role == 'student': group_exists(lesson, user.group_id)
         result = []
         for g in range(1, config(lesson)[1]+1):
-            if user.role != 'teacher' and user.group_id != g:
+            if user.role == 'student' and user.group_id != g:
                 continue
             w = session.get(Work, (lesson_id, g, stage)); vs = versions(session, lesson_id, g, stage)
             cs = chat_rows(session, lesson_id, g, stage)

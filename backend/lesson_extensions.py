@@ -320,14 +320,14 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
             old=originals.get(key);points=correction.get('points',{}).get(key,old['points'] if old else None)
             i=dict(key=key,label=label,maximum=maximum,points=points,missing=old.get('missing',False) if old and not correction else False,
                    hint='')
-            if user.role=='teacher': i.update(reason=old.get('reason','') if old else '',evidence=old.get('evidence',[]) if old else [],ai_points=old.get('points') if old else None)
+            if user.role in ('teacher', 'observer'): i.update(reason=old.get('reason','') if old else '',evidence=old.get('evidence',[]) if old else [],ai_points=old.get('points') if old else None)
             items.append(i)
         entry=dict(stage=stage,version_id=v.id if v else None,revision=v.revision if v else None,status='corrected' if correction else a.status if a else 'model_submitted' if v and json.loads(v.data).get('phase') == 'model' else 'unsubmitted',
                    items=items,total=sum(i['points'] or 0 for i in items) if any(i['points'] is not None for i in items) else None,maximum=sum(r[2] for r in rubric))
         entry['feedback'] = student_feedback(original.get('feedback'), items, corrected=bool(correction)) if entry['total'] is not None else None
         entry['clarification'] = original.get('clarification', '')
         entry['updated'] = a.updated if a else None
-        if user.role=='teacher':entry.update(correction=correction,error=a.error if a else '',rubric_version=a.rubric_version if a else curriculum.RUBRIC_VERSION)
+        if user.role in ('teacher', 'observer'):entry.update(correction=correction,error=a.error if a else '',rubric_version=a.rubric_version if a else curriculum.RUBRIC_VERSION)
         return entry
 
     def version_score(session, version, user):
@@ -367,7 +367,7 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
 
     @router.get('/lessons/{lesson_id}/teaching-guide')
     def teaching_guide(lesson_id:str,user=Depends(identity),session=Depends(db)):
-        teacher(user);lesson=get_lesson(session,lesson_id)
+        teacher(user, read_only=True);lesson=get_lesson(session,lesson_id)
         if config(lesson)[0] in GRAPE_FLOWS:
             current = curriculum_for(config(lesson)[0])
             return dict(prompts={k:current.guide(k) for k in current.STAGES}, rubric=current.RUBRIC,

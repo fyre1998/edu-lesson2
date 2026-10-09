@@ -13,6 +13,8 @@ const presentation = {request:0, timer:null, auto:false, loading:false, mode:'wo
 function toast(text) { $('#toast').textContent=text; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000); }
 function show(id, visible) { $(id).classList.toggle('hidden',!visible); }
 function isTeacher() { return S.user?.role==='teacher'; }
+function isObserver() { return S.user?.role==='observer'; }
+function isTeacherView() { return isTeacher() || isObserver(); }
 function base() { return '/lessons/'+encodeURIComponent(S.lesson.id); }
 function draftKey() { return `lesson2:${S.user.groupId}:${S.lesson.id}:${S.stage}`; }
 function busy() { return S.uploading || S.sending || S.loading || S.submitting || S.extracting; }
@@ -66,6 +68,7 @@ function handleFieldVoiceClick(event) {
   if(!busy()&&!$('#field-'+key)?.disabled&&S.lesson?.status==='live')lessonVoice.start(key);
 }
 async function api(path, options={}) {
+  if(isObserver() && !['GET','HEAD'].includes((options.method||'GET').toUpperCase()) && !['/login','/logout'].includes(path))throw new Error('课堂观察只能查看，不能修改课堂内容');
   const {onText,...requestOptions}=options;
   const headers={'X-Workbench':'1'};
   if(onText)headers.Accept='text/event-stream';
@@ -100,7 +103,8 @@ async function activate(user) {
   $('#app').classList.toggle('student-view',user.role==='student');
   globalThis.classroomSidebar?.reset();
   show('#loginScreen',false); show('#app',true); $('#teacherPassword').value='';
-  $('#identityLabel').textContent=isTeacher()?`${user.name} · 教师`:`第 ${user.groupId} 组`;
+  show('#legacyButton',!isObserver()); $('#lessonSelect').disabled=isObserver();
+  $('#identityLabel').textContent=isObserver()?'课堂观察 · 只读':isTeacher()?`${user.name} · 教师`:`第 ${user.groupId} 组`;
   setAI(true);
   await loadLessons();
 }
@@ -109,6 +113,7 @@ function lessonOptions() {
   if(S.lesson) $('#lessonSelect').value=S.lesson.id;
 }
 async function loadLessons(preferred) {
+  if(isObserver())$('#historyDialog').close();
   globalThis.classroomSidebar?.reset();
   closePresentation();
   closeSummaryPresentation();
@@ -118,12 +123,16 @@ async function loadLessons(preferred) {
   lessonOptions(); show('#emptyState',!S.lesson); show('#lessonSurface',!!S.lesson);
   show('#lessonHeading',!!S.lesson); show('#groupBadge',!!S.lesson);
   if(!S.lesson) {
-    $('#stageNav').innerHTML='';
-    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>怎样用植物激素优化葡萄的产量与品质？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="植物激素与葡萄增产"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">已加入小组</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
+    $('#stageNav').innerHTML=''; S.content=null; S.groups=[]; S.work=null;
+    $('#groupDetail').replaceChildren(); $('#teacherMaterials').replaceChildren(); $('#groupGrid').replaceChildren();
+    $('#eventsBody').replaceChildren(); summaryRequest++; summaryPendingKey=''; updateSummaryPanels(null);
+    delete $('#teacherMaterials').dataset.snapshot; delete $('#groupDetail').dataset.snapshot;
+    $('#syncStatus').textContent='等待老师开始课堂';
+    $('#emptyState').innerHTML=isTeacher()?'<p class="eyebrow">开始一次新的研究</p><h1>怎样用植物激素优化葡萄的产量与品质？</h1><p class="muted">建立课次后，各组就能进入第一个探究环节。</p><label>课次名称<input id="newLessonTitle" maxlength="80" value="植物激素与葡萄增产"></label><button class="primary" id="createLessonButton">创建课次</button>':'<p class="eyebrow">等待课堂开始</p><h1>等待老师开始本次探究</h1><p class="muted">老师创建课次后，页面会自动更新。</p>';
     return;
   }
   S.lastTeacherStage=S.lesson.stage;
-  if(isTeacher()&&S.group>S.lesson.group_count)S.group=1;
+  if(isTeacherView()&&S.group>S.lesson.group_count)S.group=1;
   await loadStage(S.lesson.stage);
 }
 async function loadStage(stage) {
@@ -138,13 +147,13 @@ async function loadStage(stage) {
   try {
     const content=await api(`/lessons/${lessonId}/stages/${stage}`);
     const [groups,work]=await Promise.all([api(`/lessons/${lessonId}/groups?stage=${stage}`),
-      api(`/lessons/${lessonId}/groups/${isTeacher()?S.group:S.user.groupId}/stages/${stage}`)]);
+      api(`/lessons/${lessonId}/groups/${isTeacherView()?S.group:S.user.groupId}/stages/${stage}`)]);
     if(seq!==S.seq || !S.user) return;
     S.stage=stage; S.content=content; S.lesson=content.lesson; S.groups=groups; S.work=work; S.edit=S.savedEdit=0;
     S.material=content.materials.find(m=>m.stage===stage)?.id||content.materials[0]?.id;
     S.uploadTarget=null;
     renderFrame();
-    if(isTeacher()) { renderTeacher(); await refreshEvents(); }
+    if(isTeacherView()) { renderTeacher(); await refreshEvents(); }
     else { renderStudent(); restoreLocalDraft(); }
     renderChat(); renderScores(); $('#syncStatus').textContent='已同步 · '+new Date().toLocaleTimeString('zh-CN');
   } catch(e) { toast(e.message); throw e; }
@@ -156,12 +165,15 @@ function renderFrame() {
   $('#teacherSummaryTitle').textContent=$('#summaryPresentationTitle').textContent=isGrape()?'增产方案问题智能汇总':'实验设计问题智能汇总';
   $('#chatSubmit').textContent=isGrape()?(S.stage===1?'获取百粒质量':'提交方案并评分'):'提交本组成果';
   $('#chatInput').placeholder=isGrape()&&S.stage===1?'输入本组实验设计，写明各实验组的处理……':'指出你们最想讨论的一个问题……';
-  show('#lessonReadOnly',S.lesson.status==='archived');
-  $('#groupBadge').textContent=isTeacher()?'教师观察台':`第 ${S.user.groupId} 组`;
-  $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes?`${s.minutes} 分钟`:'教师推进'}${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');
-  show('#studentWorkspace',!isTeacher()); show('#teacherWorkspace',isTeacher()); show('#teacherControls',isTeacher());
-  show('#lessonMaterials',!isTeacher());
-  if(isTeacher()) {
+  show('#lessonReadOnly',isObserver()||S.lesson.status==='archived');
+  $('#lessonReadOnly').textContent=isObserver()?'课堂观察 · 只读':'已归档，只读';
+  $('#groupBadge').textContent=isObserver()?'课堂观察':isTeacher()?'教师观察台':`第 ${S.user.groupId} 组`;
+  $('#stageNav').innerHTML=stages.map(s=>`<button class="stage-button ${s.id===S.stage?'active':''}" data-stage="${s.id}" ${!s.open||isObserver()?'disabled':''} ${s.id===S.stage?'aria-current="step"':''}><span class="step-no">${s.id}</span><span><span class="stage-name">${esc(s.title)}</span><small>${s.open?`${s.minutes?`${s.minutes} 分钟`:'教师推进'}${s.id===S.lesson.stage?' · 当前':''}`:'等待教师开放'}</small></span></button>`).join('');
+  show('#studentWorkspace',!isTeacherView()); show('#teacherWorkspace',isTeacherView()); show('#teacherControls',isTeacherView());
+  show('#lessonMaterials',!isTeacherView());
+  if(isObserver()) {
+    $('#teacherControls').innerHTML='<p>只读观察 · 跟随教师当前环节</p><button id="presentButton">成果投屏</button>';
+  } else if(isTeacher()) {
     const live=S.lesson.status==='live';
     $('#teacherControls').innerHTML=`<p>${live?`全班当前：${S.lesson.stage}. ${esc(stages[S.lesson.stage-1].title)}`:'本课已归档，成果与记录保留'}</p><div class="actions">${live?`<label class="sr-only" for="teacherStage">开放环节</label><select id="teacherStage" style="width:auto">${stages.map(s=>`<option value="${s.id}" ${s.id===S.lesson.stage?'selected':''}>${s.id}. ${esc(s.title)}</option>`).join('')}</select><button id="openStage" class="primary">切换并开放</button>${!isInquiry()&&S.lesson.unlocked>=S.lesson.assignment_stage?`<button id="releaseResults" ${S.lesson.release_results?'disabled':''}>${S.lesson.release_results?(S.lesson.flow_version===2?'预期结果已分发':'预期结果已开放'):'分发预期结果'}</button>`:''}${(S.lesson.flow_version===1&&S.lesson.unlocked>=3)?`<button id="revealResearch" ${S.lesson.reveal_research?'disabled':''}>${S.lesson.reveal_research?'历史结果已开放':'开放历史结果'}</button>`:''}<button id="archiveLesson">归档本课</button>`:'<button id="newLessonButton" class="primary">开始新课</button>'}<button id="presentButton">成果投屏</button></div>`;
   }
@@ -198,6 +210,7 @@ function matchStatus(m) {
   return {pending:'等待匹配结果图',processing:'正在匹配结果图',ready:`已匹配 ${m.matches.length} 张图`,needs_clarification:'请补充关键处理',unmatched:'暂无对应参考图',failed:'匹配暂未完成，可重试'}[m.status]||'正在同步';
 }
 function matchHTML(m,actions=true) {
+  actions=actions&&!isObserver();
   if(isGrape())return grapeResultsHTML(m,actions);
   if(!m)return '<p class="notice">提交简要思路或任务单照片后，将在这里显示对应的实验结果参考图。本部分不计分。</p>';
   const retry=m.status==='failed'||(['pending','processing'].includes(m.status)&&Date.now()/1000-m.updated>=180);
@@ -211,6 +224,7 @@ function grapeResultsHTML(m,actions=true) {
   return `<section class="inquiry-results" aria-label="本次实验设计对应的百粒质量"><p class="fine">第 ${m.revision} 版提交 · ${esc(matchStatus(m))}</p>${m.questions.map(q=>`<p class="notice">${esc(q)}</p>`).join('')}${m.uncovered.map(q=>`<p class="notice">暂无对应课件数据：${esc(q)}</p>`).join('')}${m.error?`<p class="notice">${esc(m.error)}</p>`:''}${actions&&retry&&S.lesson.status==='live'?`<button type="button" data-match-retry="${esc(m.version_id)}">重试匹配</button>`:''}</section>`;
 }
 function versionExtras(v,actions=true) {
+  actions=actions&&!isObserver();
   if(!isInquiry())return '';
   if(S.stage===1)return matchHTML(v.result_match,actions);
   // Read this submission's assessment, never a retained mark from another version.
@@ -272,7 +286,7 @@ function teacherSubmittedWorkHTML(work) {
   return `<section class="teacher-submitted-work"><h3>${title}</h3><p class="fine">第 ${work.versions.length} 次提交 · ${stamp(version.updated)}</p>${fieldsHTML(version.fields,true)}${files}</section>`;
 }
 function collectFields() { return {...S.work?.work.fields,...Object.fromEntries($$('[data-field]').map(el=>[el.dataset.field,el.value]))}; }
-function localDraft() { if(!S.user || isTeacher() || !S.lesson) return; try { sessionStorage.setItem(draftKey(),JSON.stringify({fields:collectFields(),file_ids:S.work.work.file_ids,revision:S.work.work.revision})); } catch {} }
+function localDraft() { if(!S.user || isTeacherView() || !S.lesson) return; try { sessionStorage.setItem(draftKey(),JSON.stringify({fields:collectFields(),file_ids:S.work.work.file_ids,revision:S.work.work.revision})); } catch {} }
 function restoreLocalDraft() {
   let d; try { d=JSON.parse(sessionStorage.getItem(draftKey())); } catch {}
   if(!d || S.lesson.status!=='live') return;
@@ -299,7 +313,7 @@ function saveWork(submit=false) {
   clearTimeout(S.draftTimer);
   const context={id:S.lesson?.id,stage:S.stage,group:S.user?.groupId};
   const perform=async()=>{
-    if(!S.user || isTeacher() || S.lesson?.id!==context.id || S.stage!==context.stage || S.user.groupId!==context.group) return false;
+    if(!S.user || isTeacherView() || S.lesson?.id!==context.id || S.stage!==context.stage || S.user.groupId!==context.group) return false;
     if(!submit && S.edit===S.savedEdit) return true;
     if(S.lesson.status!=='live') return false;
     const edit=S.edit, fields=collectFields(), file_ids=[...S.work.work.file_ids], revision=S.work.work.revision;
@@ -327,18 +341,18 @@ function saveWork(submit=false) {
       return true;
     } catch(e) { $('#saveStatus').textContent=e.message; localDraft(); toast(e.message); return false; }
   };
-  const queued=S.saveChain.then(perform,perform).finally(()=>{if(submit){S.submitting=false;if(S.user&&!isTeacher()&&S.lesson?.id===context.id&&S.stage===context.stage)renderExtras();}}); S.saveChain=queued; return queued;
+  const queued=S.saveChain.then(perform,perform).finally(()=>{if(submit){S.submitting=false;if(S.user&&!isTeacherView()&&S.lesson?.id===context.id&&S.stage===context.stage)renderExtras();}}); S.saveChain=queued; return queued;
 }
-async function flush() { globalThis.lessonVoice?.cancel(); if(busy()) { toast('请先等待当前上传或回复完成。'); return false; } return isTeacher() || !S.lesson || S.edit===S.savedEdit ? true : await saveWork(false); }
+async function flush() { globalThis.lessonVoice?.cancel(); if(busy()) { toast('请先等待当前上传或回复完成。'); return false; } return isTeacherView() || !S.lesson || S.edit===S.savedEdit ? true : await saveWork(false); }
 async function refreshWork(replaceFields=false) {
-  const seq=S.seq, group=isTeacher()?S.group:S.user.groupId, work=await api(base()+`/groups/${group}/stages/${S.stage}`);
-  if(seq!==S.seq || !S.user || group!==(isTeacher()?S.group:S.user.groupId)) return;
-  if(isTeacher()) { S.work=work; renderDetail(); return; }
+  const seq=S.seq, group=isTeacherView()?S.group:S.user.groupId, work=await api(base()+`/groups/${group}/stages/${S.stage}`);
+  if(seq!==S.seq || !S.user || group!==(isTeacherView()?S.group:S.user.groupId)) return;
+  if(isTeacherView()) { S.work=work; renderDetail(); return; }
   if(S.edit===S.savedEdit && work.work.revision>=S.work.work.revision) { S.work=work; if(replaceFields) renderStudent(); else renderExtras(); }
   else { syncSubmissionResults(work); S.work.assignment=work.assignment; renderExtras(); }
 }
 async function pollSubmission() {
-  if(!S.user || isTeacher() || !isInquiry() || S.lesson?.status!=='live' ||
+  if(!S.user || isTeacherView() || !isInquiry() || S.lesson?.status!=='live' ||
      S.syncing || busy() || document.hidden || !S.work) return;
   if(!submissionWaitReason()) return;
   // Refresh only this group's result while it is waiting, keeping unsaved edits.
@@ -353,7 +367,7 @@ async function poll() {
   try {
     const lessons=await api('/lessons'); if(seq!==S.seq || !S.user) return;
     if(!S.lesson) { if(lessons.length) await loadLessons(); return; }
-    S.lessons=lessons; const latest=lessons.find(l=>l.id===S.lesson.id); if(!latest) return;
+    S.lessons=lessons; const latest=lessons.find(l=>l.id===S.lesson.id); if(!latest) { if(isObserver())await loadLessons(); return; }
     const changed=latest.stage!==S.lastTeacherStage;
     if(changed)globalThis.lessonVoice?.cancel();
     if(changed && !busy()) {
@@ -365,8 +379,8 @@ async function poll() {
     S.lesson=latest; lessonOptions();
     const groups=await api(base()+`/groups?stage=${S.stage}`); if(seq!==S.seq || !S.user) return;
     S.groups=groups;
-    if(reveal) { S.content=await api(base()+`/stages/${S.stage}`); if(seq!==S.seq) return; renderFrame(); if(!isTeacher()) renderMaterials(); }
-    if(isTeacher()) { renderTeacher(); await refreshWork(); }
+    if(reveal) { S.content=await api(base()+`/stages/${S.stage}`); if(seq!==S.seq) return; renderFrame(); if(!isTeacherView()) renderMaterials(); }
+    if(isTeacherView()) { renderTeacher(); await refreshWork(); }
     else if(!S.sending && !S.uploading && !S.submitting) {
       const w=await api(base()+`/groups/${S.user.groupId}/stages/${S.stage}`); if(seq!==S.seq) return;
       if(S.edit===S.savedEdit && !S.submitting && w.work.revision>=S.work.work.revision) {
@@ -394,7 +408,7 @@ function teacherSummaryHTML(data, projected=false) {
   const waiting = data.groups.filter(g=>!['ready','corrected'].includes(g.status));
   const pending = waiting.length?`<details class="summary-pending"><summary>${waiting.length} 组暂未纳入汇总</summary><p class="fine">${waiting.map(g=>`第 ${g.group_id} 组：${esc(labels[g.status]||g.status)}`).join('；')}。这些小组暂不归入设计问题。</p></details>`:'';
   const statuses = {waiting:'等待各组提交并完成评价。',pending:'已有新提交，正在更新汇总。',processing:'AI 正在归纳各组实验设计的具体不足。',failed:'AI 汇总暂未完成，各组设计与评价已保留。'};
-  const retry=data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':'';
+  const retry=isTeacher()&&data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':'';
   if(!data.result) return `${counts}<p role="status">${esc(statuses[data.status]||'正在更新汇总。')}</p>${pending}${retry}`;
   const updating=data.status!=='ready'?`<p class="fine" role="status">${data.status==='failed'?'新汇总生成失败，继续显示上一版汇总。':'正在更新，暂显示上一版汇总；新汇总生成完成后自动替换。'}</p>${retry}`:'';
   const result=data.result;
@@ -408,7 +422,7 @@ function updateSummaryPanels(data, message='') {
   }
 }
 async function refreshTeacherSummary() {
-  const enabled=isTeacher()&&isInquiry()&&S.stage===2;
+  const enabled=isTeacherView()&&isInquiry()&&S.stage===2;
   show('#teacherSummary',enabled);
   if(!enabled) { summaryRequest++;summaryPendingKey='';closeSummaryPresentation();return; }
   const key=`${S.lesson.id}:${S.seq}`;
@@ -419,14 +433,14 @@ async function refreshTeacherSummary() {
   summaryPendingKey=key;
   try {
     const data=await api(base()+'/design-summary');
-    if(request!==summaryRequest||seq!==S.seq||!isTeacher()||S.stage!==2)return;
+    if(request!==summaryRequest||seq!==S.seq||!isTeacherView()||S.stage!==2)return;
     updateSummaryPanels(data);
   } catch(e) {
     if(request===summaryRequest&&seq===S.seq)updateSummaryPanels(summaryData?.result?summaryData:null,`<p class="fine" role="status">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`);
   } finally {if(request===summaryRequest)summaryPendingKey='';}
 }
 function presentSummary() {
-  if(!isTeacher()||!isInquiry()||S.stage!==2)return;
+  if(!isTeacherView()||!isInquiry()||S.stage!==2)return;
   const dialog=$('#summaryPresentationDialog');
   if(!dialog.open)dialog.showModal();
   void toggleFullscreen($('#summaryPresentationSurface'));
@@ -461,17 +475,17 @@ function renderTeacher() {
 }
 function renderDetail() {
   const g=S.groups.find(g=>g.id===S.group), w=S.work; if(!g || !w) return;
-  const snapshot=JSON.stringify([S.stage,g,w,S.lesson.release_results,S.lesson.status]);
+  const snapshot=JSON.stringify([S.user.role,S.stage,g,w,S.lesson.release_results,S.lesson.status]);
   if($('#groupDetail').dataset.snapshot===snapshot)return;
   const context=JSON.stringify([S.lesson.id,S.stage,S.group]);
   const openStates=$('#groupDetail').dataset.context===context?$$('#groupDetail details').map(d=>d.open):[];
-  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${teacherSubmittedWorkHTML(w)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()?w.versions:[],w.files,false)}</details></div>`;
+  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${teacherSubmittedWorkHTML(w)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&isTeacher()&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()?w.versions:[],w.files,false)}</details></div>`;
   $$('#groupDetail details').forEach((d,i)=>{if(i<openStates.length)d.open=openStates[i];});
   $('#groupDetail').dataset.context=context;
   $('#groupDetail').dataset.snapshot=snapshot;
 }
 async function refreshEvents() {
-  if(!isTeacher() || !S.lesson) return;
+  if(!isTeacherView() || !S.lesson) return;
   const seq=S.seq, events=await api(base()+'/events'); if(seq!==S.seq) return;
   const names={submit:'提交成果',score_correction:'教师修分',create:'创建课次',control:'课堂控制',assign:'分发预期结果',adjust:'调整假设情境'};
   $('#eventsBody').innerHTML=events.map(e=>`<div class="event-row"><strong>${esc(names[e.kind]||e.kind)}${e.group_id?' · 第 '+e.group_id+' 组':''}</strong> · ${esc(e.author)} · ${stamp(e.created)}<br>${esc(eventDescription(e))}</div>`).join('');
@@ -488,7 +502,7 @@ function eventDescription(e) {
 function treatmentLabel(t) { return {bean_shading:'菜豆遮光实验预期结果',remove_tip:'去除顶端',tip_shade:'顶端遮光',lower_shade:'下部遮光',marking:'分段标记观察',custom:'自定义'}[t]||t; }
 async function control(body) { await api(base(),{method:'PATCH',body}); await loadLessons(S.lesson.id); await refreshEvents(); }
 async function createLesson() { const title=$('#newLessonTitle')?.value||'植物激素与葡萄增产 · '+new Date().toLocaleDateString('zh-CN'); const l=await api('/lessons',{method:'POST',body:{title}}); await loadLessons(l.id); }
-function setAI() { show('#aiPanel',!isTeacher()); $('#mainGrid').classList.toggle('with-ai',!isTeacher()); }
+function setAI() { show('#aiPanel',!isTeacherView()); $('#mainGrid').classList.toggle('with-ai',!isTeacherView()); }
 function chatAnswerText(answer) {
   if(S.lesson?.flow_version!==4||S.stage!==1)return answer;
   // Apply the current display format to saved replies without changing the records.
@@ -506,7 +520,7 @@ function chatsHTML(chats,versions=[],files=[],actions=true) {
   return entries.sort((a,b)=>a.time-b.time).map(entry=>entry.html).join('');
 }
 function renderChat({scrollToLatest=false}={}) {
-  if(!S.content || isTeacher()) return;
+  if(!S.content || isTeacherView()) return;
   const g=S.groups.find(g=>g.id===S.user.groupId), box=$('#chatMessages');
   const versions=isInquiry()?(S.work?.versions||[]):[];
   let html=(S.content.opener?`<div class="chat-entry opener"><div class="speaker">本环节引导</div><p>${esc(S.content.opener)}</p></div>`:'')+chatsHTML(g?.chats||[],versions,S.work?.files||[]);
@@ -717,6 +731,7 @@ function dismissLessonMaterials(event) {
   if(materials.open && !materials.contains(event.target))materials.open=false;
 }
 async function legacy() {
+  if(isObserver())return;
   $('#historyDialog').showModal(); $('#historyBody').innerHTML='<p>正在读取…</p>';
   const data=await api('/groups');
   $('#historyBody').innerHTML=data.map(g=>`<details><summary>第 ${g.id} 组 · ${g.files.length} 份资料 / ${g.chat.length} 条对话</summary>${g.files.map(f=>fileHTML(f)).join('')}${g.chat.map(c=>`<div class="chat-entry"><div class="speaker">${esc(c.speaker)}</div><p>${esc(c.text)}</p>${(c.images||[]).map(f=>fileHTML(f)).join('')}</div>`).join('')}</details>`).join('');
@@ -734,11 +749,18 @@ async function scenarioOptions(selected=0){scenarioList=await api(base()+'/scena
 function renderScenarioPreview(){const s=scenarioList.find(s=>s.variant===Number($('#adjustVariant').value));$('#adjustPreview').innerHTML=s?`<img class="record-image" src="${esc(publicURL(s.image))}" alt="${esc(s.label)}"><span class="fine">${esc(s.boundary)}</span>`:'';}
 const camera=createCameraCapture({onConfirm:f=>uploadFiles([f],{submitToAI:isInquiry()}),onFile:()=>$('#fileInput').click()});
 $('#loginGroup').addEventListener('change',names);
+$('#observerLogin').addEventListener('click',async()=>{
+  const button=$('#observerLogin'); if(button.disabled)return;
+  button.disabled=true; $('#loginSubmit').disabled=true; $('#loginError').textContent='';
+  try { await activate(await api('/login',{method:'POST',body:{role:'observer'}})); }
+  catch(error) { $('#loginError').textContent=error.message; }
+  finally { button.disabled=false; $('#loginSubmit').disabled=false; }
+});
 $$('[data-role]').forEach(b=>b.addEventListener('click',()=>{S.role=b.dataset.role;$$('[data-role]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});show('#groupField',S.role==='student');show('#teacherPasswordField',S.role==='teacher');$('#teacherPassword').required=S.role==='teacher';names();}));
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginError').textContent='';$('#loginSubmit').disabled=true;try{const user=await api('/login',{method:'POST',body:{role:S.role,name:S.role==='teacher'?$('#loginName').value:'',groupId:S.role==='student'?Number($('#loginGroup').value):null,code:$('#classCode').value,teacherPassword:$('#teacherPassword').value}});await activate(user);}catch(err){$('#loginError').textContent=err.message;}finally{$('#loginSubmit').disabled=false;}});
 $('#logoutButton').addEventListener('click',async()=>{if(!await flush())return;try{await api('/logout',{method:'POST'});Object.keys(sessionStorage).filter(k=>k.startsWith('lesson2:')).forEach(k=>sessionStorage.removeItem(k));reset();}catch(e){toast(e.message);}});
-$('#lessonSelect').addEventListener('change',async e=>{const id=e.target.value;if(!await flush()){lessonOptions();return;}await loadLessons(id).catch(e=>toast(e.message));});
-$('#stageNav').addEventListener('click',async e=>{const b=e.target.closest('[data-stage]');if(!b||b.disabled)return;if(await flush())await loadStage(Number(b.dataset.stage)).catch(()=>{});});
+$('#lessonSelect').addEventListener('change',async e=>{const id=e.target.value;if(isObserver())return;if(!await flush()){lessonOptions();return;}await loadLessons(id).catch(e=>toast(e.message));});
+$('#stageNav').addEventListener('click',async e=>{const b=e.target.closest('[data-stage]');if(!b||b.disabled||isObserver())return;if(await flush())await loadStage(Number(b.dataset.stage)).catch(()=>{});});
 $('#materialTabs').addEventListener('click',e=>{const b=e.target.closest('[data-material]');if(b){S.material=b.dataset.material;renderMaterials();}});
 document.addEventListener('click',dismissLessonMaterials,true);
 $('#workFields').addEventListener('input',e=>{if(!e.target.matches('[data-field]'))return;markDirty();});$('#workFields').addEventListener('change',e=>{if(e.target.matches('select'))markDirty();});
@@ -755,7 +777,7 @@ $('#chatInput').addEventListener('keydown',e=>{
   $('#chatForm').requestSubmit();
 });
 $('#chatAttachments').addEventListener('click',e=>{const b=e.target.closest('[data-remove-ai]');if(b){S.images.delete(b.dataset.removeAi);renderChat();}});
-$('#refreshButton').addEventListener('click',async()=>{if(!await flush())return;try{if(S.lesson)await loadStage(S.stage);else await loadLessons();}catch{}});
+$('#refreshButton').addEventListener('click',async()=>{if(!await flush())return;try{if(isObserver())await loadLessons();else if(S.lesson)await loadStage(S.stage);else await loadLessons();}catch{}});
 $('#emptyState').addEventListener('click',e=>{if(e.target.closest('#createLessonButton'))createLesson().catch(e=>toast(e.message));});
 $('#teacherControls').addEventListener('click',async e=>{const id=e.target.closest('button')?.id;if(!id)return;try{if(id==='openStage')await control({stage:Number($('#teacherStage').value)});if(id==='releaseResults')await control({release_results:true});if(id==='revealResearch')await control({reveal_research:true});if(id==='archiveLesson'&&confirm('归档后本课只能查看，所有成果保留。确定归档？'))await control({status:'archived'});if(id==='newLessonButton')await createLesson();if(id==='presentButton')await present();}catch(err){toast(err.message);}});
 $('#teacherSummary').addEventListener('click',handleSummaryClick);
@@ -785,7 +807,7 @@ $('#fullscreenButton').addEventListener('click',()=>toggleFullscreen($('#present
 document.addEventListener('fullscreenchange',updateFullscreenButtons);
 $('#legacyButton').addEventListener('click',()=>legacy().catch(e=>toast(e.message)));$('#closeHistory').addEventListener('click',()=>$('#historyDialog').close());
 window.addEventListener('beforeunload',e=>{globalThis.lessonVoice?.cancel();if(S.edit!==S.savedEdit||S.uploading||S.sending){localDraft();e.preventDefault();e.returnValue='';}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)globalThis.lessonVoice?.cancel();if(document.hidden&&S.user&&!isTeacher()&&S.edit!==S.savedEdit)saveWork(false);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)globalThis.lessonVoice?.cancel();if(document.hidden&&S.user&&!isTeacherView()&&S.edit!==S.savedEdit)saveWork(false);});
 async function boot() {try{S.roster=await api('/roster');$('#loginGroup').innerHTML=S.roster.groups.map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');names();try{await activate(await api('/me'));}catch(e){if(e.status!==401)$('#loginError').textContent=e.message;}}catch(e){$('#loginError').textContent='课堂服务暂时无法连接，请刷新后重试。';}}
 installWidgets();
 document.addEventListener('click',async e=>{

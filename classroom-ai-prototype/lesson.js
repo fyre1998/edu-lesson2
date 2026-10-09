@@ -379,20 +379,24 @@ function workPreview(fields,attachments=[]){
   return S.content.content.fields.filter(f=>!f.hidden&&fields[f.key]).map(f=>`${f.label}：${fields[f.key]}`).join('；')||(attachments.length?`已上传 ${attachments.length} 份附件，点击查看。`:'等待本组记录观察与思考。');
 }
 
-let summaryPendingKey = '', summaryRequest = 0;
+let summaryPendingKey = '', summaryRequest = 0, summaryData = null;
 function teacherSummaryHTML(data, projected=false) {
   const labels = {unsubmitted:'尚未提交',pending:'等待评价',processing:'正在评价',failed:'评价失败',needs_clarification:'图片待补充',previous_task:'旧任务提交',ready:'已评价',corrected:'教师已复核'};
-  const counts = `<p class="fine">已提交 ${data.submitted} / ${data.group_count} 组 · 本次可分析 ${data.evaluated} 组${data.updated?' · 更新于 '+esc(stamp(data.updated)):''}</p>`;
+  const updated=data.result?.generated_at||(data.status==='ready'?data.updated:null);
+  const counts = `<p class="fine">当前已提交 ${data.submitted} / ${data.group_count} 组 · 当前可分析 ${data.evaluated} 组${updated?' · 汇总生成于 '+esc(stamp(updated)):''}</p>`;
   const waiting = data.groups.filter(g=>!['ready','corrected'].includes(g.status));
   const pending = waiting.length?`<details class="summary-pending"><summary>${waiting.length} 组暂未纳入汇总</summary><p class="fine">${waiting.map(g=>`第 ${g.group_id} 组：${esc(labels[g.status]||g.status)}`).join('；')}。这些小组暂不归入设计问题。</p></details>`:'';
   const statuses = {waiting:'等待各组提交并完成评价。',pending:'已有新提交，正在更新汇总。',processing:'AI 正在归纳各组实验设计的具体不足。',failed:'AI 汇总暂未完成，各组设计与评价已保留。'};
-  if(data.status!=='ready'||!data.result) return `${counts}<p role="status">${esc(statuses[data.status]||'正在更新汇总。')}</p>${pending}${data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':''}`;
+  const retry=data.status==='failed'?'<button type="button" data-summary-retry>重试汇总</button>':'';
+  if(!data.result) return `${counts}<p role="status">${esc(statuses[data.status]||'正在更新汇总。')}</p>${pending}${retry}`;
+  const updating=data.status!=='ready'?`<p class="fine" role="status">${data.status==='failed'?'新汇总生成失败，继续显示上一版汇总。':'正在更新，暂显示上一版汇总；新汇总生成完成后自动替换。'}</p>${retry}`:'';
   const result=data.result;
-  return `${projected?'':counts}<p class="summary-overview">${esc(result.overview)}</p><div class="summary-issues">${result.issues.length?result.issues.map((issue,index)=>`<article class="summary-issue"><h3><span class="summary-number">${index+1}</span>${esc(issue.title)}</h3><p class="summary-detail">${esc(issue.detail)}</p><div class="summary-groups"><span class="fine">涉及小组：</span>${issue.group_ids.map(g=>`<button type="button" data-summary-group="${g}">第 ${g} 组</button>`).join('')}</div><details><summary>查看原文依据与点评建议</summary><p><strong>教师点评建议：</strong>${esc(issue.suggestion)}</p>${issue.evidence.map(e=>{const source=result.sources.find(s=>s.group_id===e.group_id);return `<p>第 ${e.group_id} 组 · 提交版本 ${source?.revision??'—'}：${esc(e.quote)}</p>`;}).join('')}</details></article>`).join(''):'<p>当前可分析方案中，暂未发现有充分依据的主要设计不足。</p>'}</div>${result.discussion.length?`<details class="summary-discussion"><summary>教师点评关注点</summary><ol>${result.discussion.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></details>`:''}${projected?counts:''}${pending}`;
+  return `${projected?'':counts}<p class="summary-overview">${esc(result.overview)}</p><div class="summary-issues">${result.issues.length?result.issues.map((issue,index)=>`<article class="summary-issue"><h3><span class="summary-number">${index+1}</span>${esc(issue.title)}</h3><p class="summary-detail">${esc(issue.detail)}</p><div class="summary-groups"><span class="fine">涉及小组：</span>${issue.group_ids.map(g=>`<button type="button" data-summary-group="${g}">第 ${g} 组</button>`).join('')}</div><details><summary>查看原文依据与点评建议</summary><p><strong>教师点评建议：</strong>${esc(issue.suggestion)}</p>${issue.evidence.map(e=>{const source=result.sources.find(s=>s.group_id===e.group_id);return `<p>第 ${e.group_id} 组 · 提交版本 ${source?.revision??'—'}：${esc(e.quote)}</p>`;}).join('')}</details></article>`).join(''):'<p>本版汇总中，暂未发现有充分依据的主要设计不足。</p>'}</div>${result.discussion.length?`<details class="summary-discussion"><summary>教师点评关注点</summary><ol>${result.discussion.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></details>`:''}${projected?counts:''}${updating}${pending}`;
 }
 function updateSummaryPanels(data, message='') {
+  summaryData=data;
   for(const [id,projected] of [['#teacherSummaryBody',false],['#summaryPresentationBody',true]]) {
-    const panel=$(id),html=data?teacherSummaryHTML(data,projected):message;
+    const panel=$(id),html=(data?teacherSummaryHTML(data,projected):'')+message;
     if(panel.dataset.snapshot!==html){panel.innerHTML=html;panel.dataset.snapshot=html;}
   }
 }
@@ -411,7 +415,7 @@ async function refreshTeacherSummary() {
     if(request!==summaryRequest||seq!==S.seq||!isTeacher()||S.stage!==2)return;
     updateSummaryPanels(data);
   } catch(e) {
-    if(request===summaryRequest&&seq===S.seq)updateSummaryPanels(null,`<p class="fine" role="status">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`);
+    if(request===summaryRequest&&seq===S.seq)updateSummaryPanels(summaryData?.result?summaryData:null,`<p class="fine" role="status">汇总读取失败：${esc(e.message)}。页面将自动重试。</p>`);
   } finally {if(request===summaryRequest)summaryPendingKey='';}
 }
 function presentSummary() {

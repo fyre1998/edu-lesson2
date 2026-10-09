@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import httpx
+import pytest
 from fastapi import BackgroundTasks
 from sqlalchemy import text
 
@@ -27,7 +28,7 @@ def test_summary_requires_concise_deficiencies():
             validate_result(invalid, [group])
 
 
-def transport(module, monkeypatch, summarizer):
+def transport(module, monkeypatch, summarizer, grader=scoring):
     monkeypatch.setenv('AI_API_KEY', 'test')
     monkeypatch.setenv('AI_MODEL', 'mock')
     real = httpx.AsyncClient
@@ -39,7 +40,7 @@ def transport(module, monkeypatch, summarizer):
             calls.append(payload)
             answer = summarizer(payload)
         else:
-            answer = scoring()
+            answer = grader()
         if isinstance(answer, httpx.Response):
             return answer
         return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(answer, ensure_ascii=False)}}]})
@@ -100,22 +101,76 @@ def test_failed_summary_retries_without_changing_scores_and_corrected_scores_ref
     assert calls[-1]['groups'][0]['correction']['reason'] == '两侧收集方式尚不明确'
 
 
-def test_stale_summary_hidden_until_new_submission_evaluated(env, monkeypatch):
-    module, c = env; lid = start(c, monkeypatch, 2); student(c, 1)
-    calls = transport(module, monkeypatch, issue_summary)
+@pytest.mark.parametrize('flow', [3, 4, 5])
+def test_summary_retained_until_new_submission_evaluated_and_replaced(env, monkeypatch, flow):
+    from test_lesson_grape import start as grape_start, scoring as grape_scoring
+    from test_lesson_grape_v5 import start as grape_v5_start, scoring as grape_v5_scoring
+    module, c = env
+    lid = {3: start, 4: grape_start, 5: grape_v5_start}[flow](c, monkeypatch, 2)
+    student(c, 1)
+    calls = transport(module, monkeypatch, issue_summary,
+                      grader={3: scoring, 4: grape_scoring, 5: grape_v5_scoring}[flow])
     submit(c, lid, 2, {'design': '只测总量'})
+    classroom_login(c, teacher=True)
+    url = f'/api/classroom/lessons/{lid}/design-summary'
+    previous = c.get(url).json()['result']
     jobs = []
     monkeypatch.setattr(BackgroundTasks, 'add_task', lambda self, fn, *args, **kwargs: jobs.append((fn, args, kwargs)))
-    submit(c, lid, 2, {'design': '分别收集并比较两侧'}, revision=1)
+    student(c, 1)
+    latest = submit(c, lid, 2, {'design': '分别收集并比较两侧'}, revision=1).json()['submission_id']
     classroom_login(c, teacher=True)
-    data = c.get(f'/api/classroom/lessons/{lid}/design-summary').json()
-    assert data['stale'] and data['result'] is None and data['evaluated'] == 0
+    data = c.get(url).json()
+    assert data['stale'] and data['result'] == previous and data['evaluated'] == 0
+    # Refreshing before the only group's new assessment finishes retains the
+    # stored summary, so a fresh page still has a complete result to display.
+    fn, args, kwargs = jobs.pop()
+    asyncio.run(fn(*args, **kwargs))
+    waiting = c.get(url).json()
+    assert waiting['status'] == 'waiting' and waiting['result'] == previous
     async def run():
         for fn, args, kwargs in jobs:
             await fn(*args, **kwargs)
     asyncio.run(run())
-    result = c.get(f'/api/classroom/lessons/{lid}/design-summary').json()
+    result = c.get(url).json()
     assert result['status'] == 'ready' and result['result']['issues'] == []
+    assert result['result']['sources'][0]['version_id'] == latest
+    assert result['result']['generated_at']
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('failure', ['provider', 'invalid_evidence'])
+def test_processing_and_failed_summary_keep_last_complete_result_until_retry(env, monkeypatch, failure):
+    module, c = env; lid = start(c, monkeypatch, 2); student(c, 1)
+    processing = []
+    answers = []
+    def summarize(payload):
+        with module.engine.connect() as db:
+            status, saved = db.execute(text(
+                'SELECT status, result FROM lesson_design_summaries WHERE lesson_id=:lid'), {'lid': lid}).one()
+            processing.append((status, json.loads(saved)))
+        return answers.pop(0) if answers else issue_summary(payload)
+    calls = transport(module, monkeypatch, summarize)
+    submit(c, lid, 2, {'design': '只测总量'})
+    classroom_login(c, teacher=True)
+    url = f'/api/classroom/lessons/{lid}/design-summary'
+    previous = c.get(url).json()['result']
+    invalid = issue_summary({'groups': [dict(group_id=1, design='只测总量')]})
+    invalid['issues'][0]['evidence'][0]['quote'] = '没有出现过的原文'
+    answers.append(httpx.Response(502) if failure == 'provider' else invalid)
+    student(c, 1)
+    latest = submit(c, lid, 2, {'design': '分别收集并比较两侧'}, revision=1).json()['submission_id']
+    classroom_login(c, teacher=True)
+    failed = c.get(url).json()
+    assert processing[-1] == ('processing', previous)
+    assert failed['status'] == 'failed' and failed['result'] == previous
+    assert c.get(url).json()['result'] == previous
+    assert len(calls) == 2
+    assert c.post(url + '/retry').status_code == 200
+    assert processing[-1] == ('processing', previous)
+    result = c.get(url).json()
+    assert result['status'] == 'ready' and result['result']['issues'] == []
+    assert result['result']['sources'][0]['version_id'] == latest
+    assert len(calls) == 3
 
 
 def test_summary_prompt_version_change_replaces_cached_verbose_result(env, monkeypatch):
@@ -125,10 +180,11 @@ def test_summary_prompt_version_change_replaces_cached_verbose_result(env, monke
     submit(c, lid, 2, {'design': '只测总量'})
     classroom_login(c, teacher=True)
     url = f'/api/classroom/lessons/{lid}/design-summary'
-    assert c.get(url).json()['status'] == 'ready'
+    previous = c.get(url).json()
+    assert previous['status'] == 'ready'
     monkeypatch.setattr(lesson_summary, 'SUMMARY_VERSION', 'new-teacher-deficiencies')
     stale = c.get(url).json()
-    assert stale['stale'] and stale['result'] is None
+    assert stale['stale'] and stale['result'] == previous['result']
     assert c.get(url).json()['status'] == 'ready'
     assert len(calls) == 2
 

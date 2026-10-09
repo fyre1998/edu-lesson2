@@ -287,7 +287,7 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                 entry.update(status='previous_task', total=None, feedback=None)
                 entry['items'] = [dict(key=r[0], label=r[1], maximum=r[2], points=None,
                                        missing=False, hint='') for r in rubric]
-            history = []
+            history, retained = [], None
             for number, (version, assessment) in enumerate(versions, 1):
                 if not assessment or (assessment.status != 'ready' and not json.loads(assessment.correction)):
                     continue
@@ -297,11 +297,14 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                         submission_number=number, total=scored['total'], maximum=scored['maximum'],
                         status=scored['status'], updated=scored['updated'],
                         previous_task=curriculum is v3 and assessment.rubric_version != v3.RUBRIC_VERSION))
+                    if not history[-1]['previous_task']:
+                        retained = dict(scored, **history[-1])
             # Keep the latest submission and its status intact. Pending, failed or
-            # unreadable work cannot erase the most recent completed mark.
+            # unreadable work cannot erase the last complete score and feedback.
+            # score_entry applies the caller's permissions to retained details.
             entry['history'] = history
             entry['submission_number'] = len(versions)
-            entry['retained_score'] = next((h for h in reversed(history) if not h['previous_task']), None) if entry['total'] is None and entry['status'] != 'previous_task' else None
+            entry['retained_score'] = retained if entry['total'] is None and entry['status'] != 'previous_task' else None
             result.append(entry)
         totals = [r['total'] if r['total'] is not None else (r['retained_score'] or {}).get('total') for r in result]
         return dict(stages=result,total=sum(t or 0 for t in totals),graded=sum(t is not None for t in totals),maximum=100)

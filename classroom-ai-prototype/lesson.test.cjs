@@ -200,13 +200,18 @@ test('text-only revisions keep selected photos without affecting previous submis
   a.calls[1].reply({detail:'同步失败'},503);assert.equal(await pending,true);
   assert.deepEqual([...a.run('S.work.versions[0].file_ids')],['old-0']);
 });
-test('teacher summary escapes evidence and hides stale issues',()=>{
+test('teacher summary escapes evidence and retains complete issues during updates and failures',()=>{
   const a=setup();
   const data={status:'ready',submitted:1,evaluated:1,group_count:8,updated:null,groups:[{group_id:2,status:'processing'}],
     result:{overview:'<script>不要执行</script>',issues:[{title:'两侧未比较',detail:'缺少依据',group_ids:[1],suggestion:'重点检查两侧比较依据。',evidence:[{group_id:1,quote:'<img src=x onerror=bad>'}]}],sources:[{group_id:1,revision:3}],discussion:[]}};
   const html=a.run(`teacherSummaryHTML(${JSON.stringify(data)})`);
   assert.doesNotMatch(html,/<script>|<img /);assert.match(html,/提交版本 3/);assert.match(html,/第 2 组：正在评价/);
-  data.status='pending';assert.doesNotMatch(a.run(`teacherSummaryHTML(${JSON.stringify(data)})`),/两侧未比较/);
+  for(const status of ['pending','processing','waiting','failed']) {
+    data.status=status;const retained=a.run(`teacherSummaryHTML(${JSON.stringify(data)})`);
+    assert.match(retained,/两侧未比较/);assert.match(retained,/上一版汇总/);
+    if(status==='failed')assert.match(retained,/data-summary-retry/);
+  }
+  data.result=null;assert.doesNotMatch(a.run(`teacherSummaryHTML(${JSON.stringify(data)})`),/两侧未比较/);
 });
 test('teacher summary ignores late responses after switching lessons and coalesces polling',async()=>{
   const a=setup();a.run("S.user={role:'teacher'};S.stage=2;S.lesson.flow_version=3;S.seq=1");
@@ -627,7 +632,7 @@ test('stage-one conversation projection includes submitted photos and result rep
 });
 
 
-test('summary fullscreen updates together with the teacher panel and hides stale deficiencies',async()=>{
+test('summary fullscreen and teacher panel retain the last result until a complete replacement arrives',async()=>{
   const a=presentationSetup();a.run('S.stage=2;S.lesson.flow_version=3');
   a.el('#summaryPresentationSurface').requestFullscreen=async()=>a.run("document.fullscreenElement=document.querySelector('#summaryPresentationSurface')");
   a.run("document.exitFullscreen=async()=>{document.fullscreenElement=null;}");
@@ -637,8 +642,27 @@ test('summary fullscreen updates together with the teacher panel and hides stale
   assert.match(a.el('#teacherSummaryBody').innerHTML,/未区分向光侧与背光侧/);
   assert.match(a.el('#summaryPresentationBody').innerHTML,/未区分向光侧与背光侧/);
   assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/<details[^>]*open/);
-  const refresh=a.run('refreshTeacherSummary()');a.calls[1].reply({...data,status:'processing',result:null});await refresh;
-  assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/未区分向光侧与背光侧/);
+  const refresh=a.run('refreshTeacherSummary()');a.calls[1].reply({...data,status:'processing'});await refresh;
+  for(const id of ['#teacherSummaryBody','#summaryPresentationBody']) {
+    assert.match(a.el(id).innerHTML,/未区分向光侧与背光侧/);
+    assert.match(a.el(id).innerHTML,/上一版汇总/);
+  }
+  const failed=a.run('refreshTeacherSummary()');a.calls[2].reply({detail:'网络暂时不可用'},503);await failed;
+  for(const id of ['#teacherSummaryBody','#summaryPresentationBody']) {
+    assert.match(a.el(id).innerHTML,/未区分向光侧与背光侧/);
+    assert.match(a.el(id).innerHTML,/汇总读取失败/);
+  }
+  const completed=a.run('refreshTeacherSummary()');
+  a.calls[3].reply({...data,result:{...data.result,overview:'各组已完成修订。',issues:[]}});await completed;
+  for(const id of ['#teacherSummaryBody','#summaryPresentationBody']) {
+    assert.doesNotMatch(a.el(id).innerHTML,/未区分向光侧与背光侧|上一版汇总|汇总读取失败/);
+    assert.match(a.el(id).innerHTML,/各组已完成修订/);
+  }
+  a.run("S.lesson.id='new-lesson';S.seq++");
+  const switched=a.run('refreshTeacherSummary()');
+  assert.doesNotMatch(a.el('#summaryPresentationBody').innerHTML,/各组已完成修订/);
+  a.calls[4].reply({detail:'新课次读取失败'},503);await switched;
+  assert.doesNotMatch(a.el('#teacherSummaryBody').innerHTML,/各组已完成修订/);
   a.run('closeSummaryPresentation()');assert.equal(a.el('#summaryPresentationDialog').open,false);
   assert.equal(a.run('document.fullscreenElement'),null);
 });

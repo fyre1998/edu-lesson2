@@ -174,7 +174,8 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
                         session.add(record)
                     record.fingerprint = fingerprint
                     record.status = 'processing' if groups else 'waiting'
-                    record.result = '{}'
+                    # Keep the last complete summary until a validated replacement
+                    # is ready, including across reloads and failed attempts.
                     record.updated = int(time.time())
                     session.commit()
                     if not groups:
@@ -197,7 +198,9 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
                         force = False
                         continue
                     record = session.get(Summary, lesson_id)
-                    record.result = json.dumps(result, ensure_ascii=False)
+                    if status == 'ready':
+                        result['generated_at'] = int(time.time())
+                        record.result = json.dumps(result, ensure_ascii=False)
                     record.status = status
                     record.updated = int(time.time())
                     session.commit()
@@ -211,11 +214,16 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
         record = session.get(Summary, lesson.id)
         stale = not record or record.fingerprint != fingerprint
         status = 'pending' if stale and groups else 'waiting' if stale else record.status
+        result = (json.loads(record.result) or None) if record else None
+        # Retaining an earlier submission must not reintroduce another task.
+        excluded = {s['version_id'] for s in states if s['status'] == 'previous_task'}
+        if result and any(s['version_id'] in excluded for s in result['sources']):
+            result = None
         return dict(status=status, stale=stale, updated=record.updated if record else None,
                     submitted=sum(s['version_id'] is not None for s in states),
                     evaluated=len(groups), group_count=config(lesson)[1],
                     groups=[{k: s[k] for k in ('group_id', 'version_id', 'revision', 'status')} for s in states],
-                    result=json.loads(record.result) if record and not stale and status == 'ready' else None)
+                    result=result)
 
     def authorized(session, lesson_id, user):
         teacher(user)

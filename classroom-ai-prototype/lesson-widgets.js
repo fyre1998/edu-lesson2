@@ -94,12 +94,21 @@ function addConnection(target){
   $('#field-connections').value=JSON.stringify(list);markDirty();renderModel();
 }
 const scoreStatus={previous_task:'旧任务已保留，请提交新方案',unsubmitted:'未提交',model_submitted:'模型已提交，待讨论',needs_clarification:'请补充清晰设计',pending:'待评分',processing:'评分中',failed:'待重试',ready:'已评分',corrected:'教师已复核'};
+function teacherFeedbackHTML(scores){
+  const score=scores.stages.find(s=>s.stage===S.stage);
+  if(!score)return '';
+  const displayed=displayedScore(score), retained=!!score.retained_score;
+  const title=displayed?.status==='corrected'?'教师复核后的评价与建议':retained?'上一版 AI 评价与建议':'当前 AI 评价与建议';
+  const version=retained?retainedScoreHTML(score,true):`<p class="feedback-version">${score.submission_number?`第 ${score.submission_number} 次提交 · `:''}${esc(scoreStatus[score.status]||score.status)}</p>`;
+  const waiting=completedScore(score)?'':`<p class="fine" role="status">当前提交：${esc(scoreStatus[score.status]||score.status)}。${score.clarification?esc(score.clarification):retained?'新评价完整生成后自动替换。':'评价完成后会显示在这里。'}</p>`;
+  return `<section class="teacher-current-feedback" aria-label="本组当前评价与建议"><h3>${title}</h3>${version}${displayed?.feedback?studentFeedbackHTML(displayed):''}${waiting}</section>`;
+}
 function scoreHTML(scores,teacher=false){
   if(isInquiry()&&S.stage===1)return `<p class="fine">第一部分不计分，提交后获取对应${isGrape()?'百粒质量':'结果图'}。</p>`;
   if(!scores)return '';
   const stages=teacher?scores.stages:scores.stages.filter(s=>s.stage===S.stage);
   const heading=teacher?`<div class="score-heading"><strong>本组积分 ${scores.graded?scores.total:'—'} <small>/ 100</small></strong><span class="fine">${scores.graded} / ${scores.stages.length} 个计分环节已有评分</span></div>`:'';
-  return `${heading}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ${teacher&&s.stage===S.stage&&displayedScore(s)?'open':''}><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${displayedScore(s)?.total??'—'} / ${displayedScore(s)?.maximum??s.maximum} · ${s.retained_score?'保留上次得分 · 新提交':''}${scoreStatus[s.status]||s.status}</summary>${retainedScoreHTML(s)}${scoreHistoryHTML(s)}${s.clarification?`<p class="notice">${esc(s.clarification)}</p>`:''}${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&completedScore(s)?studentFeedbackHTML(s):''}${teacher&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
+  return `${heading}${teacher?teacherFeedbackHTML(scores):''}${stages.map(s=>`<details class="score-stage" data-score-stage="${s.stage}" ><summary>${teacher?`环节 ${s.stage} ·`:'本环节积分'} ${displayedScore(s)?.total??'—'} / ${displayedScore(s)?.maximum??s.maximum} · ${s.retained_score?'保留上次得分 · 新提交':''}${scoreStatus[s.status]||s.status}</summary>${retainedScoreHTML(s)}${scoreHistoryHTML(s)}${s.clarification?`<p class="notice">${esc(s.clarification)}</p>`:''}${s.items.map(i=>`<div class="score-item"><span>${esc(i.label)}</span><strong>${i.points??'—'} / ${i.maximum}</strong>${i.missing?'<small>待完成</small>':''}<p class="fine">${esc(teacher?i.reason:i.hint)}</p>${teacher&&i.evidence?.length?`<small>依据：${esc(i.evidence.join('、'))}</small>`:''}</div>`).join('')}${teacher&&s.stage!==S.stage&&completedScore(s)?studentFeedbackHTML(s):''}${teacher&&s.version_id&&S.lesson.status==='live'?`<div class="actions"><button type="button" data-score-edit="${esc(s.version_id)}">教师修分</button>${['failed','pending','processing'].includes(s.status)?`<button type="button" data-score-retry="${esc(s.version_id)}">重试评分</button>`:''}</div>`:''}${teacher&&s.correction?.reason?`<p class="fine">${esc(s.correction.author)}：${esc(s.correction.reason)}</p>`:''}</details>`).join('')}`;
 }
 function renderScores(){
   const g=S.groups.find(g=>g.id===(isTeacher()?S.group:S.user?.groupId));

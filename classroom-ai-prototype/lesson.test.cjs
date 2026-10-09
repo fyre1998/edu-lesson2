@@ -866,3 +866,56 @@ for(const stage of [1,2])test(`grape stage ${stage} waits through a failed post-
   assert.equal(a.fields[0].value,'正在修订的新方案');
   assert.equal(a.calls.filter(c=>c.url.endsWith('/submissions')).length,1);
 });
+
+
+function teacherFeedbackFixture(){
+  const score={stage:2,version_id:'current',revision:2,submission_number:2,status:'ready',total:35,maximum:100,
+    items:[{key:'design',label:'实验设计',points:35,maximum:100,reason:'评分依据',evidence:[]}],
+    feedback:{source:'ai',strengths:[{key:'design',text:'已区分两侧来源'}],improvements:[{key:'design',text:'补充检测生长作用的方法'}]}};
+  return {stages:[score],total:35,graded:1,maximum:100};
+}
+
+test('teacher current feedback is visible above collapsed score details',()=>{
+  const a=setup(),scores=teacherFeedbackFixture();
+  a.run("S.user={role:'teacher'};S.lesson.flow_version=3;S.stage=2");
+  const html=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  const visible=html.slice(0,html.indexOf('<details class="score-stage"'));
+  assert.match(visible,/当前 AI 评价与建议/);
+  assert.match(visible,/第 2 次提交/);
+  assert.match(visible,/已区分两侧来源/);
+  assert.match(visible,/补充检测生长作用的方法/);
+  assert.doesNotMatch(visible,/<details/);
+  assert.equal(html.split('补充检测生长作用的方法').length-1,1);
+  assert.doesNotMatch(html,/<details class="score-stage"[^>]*\bopen\b/);
+});
+
+for(const status of ['pending','processing','failed','needs_clarification'])test(`teacher keeps full earlier feedback visibly available while ${status}`,()=>{
+  const a=setup(),scores=teacherFeedbackFixture(),previous={...scores.stages[0]};
+  a.run("S.user={role:'teacher'};S.lesson.flow_version=3;S.stage=2");
+  Object.assign(scores.stages[0],{version_id:'next',revision:3,submission_number:3,status,total:null,items:[],feedback:null,retained_score:previous,clarification:'请补拍清晰照片'});
+  const html=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  const visible=html.slice(0,html.indexOf('<details class="score-stage"'));
+  assert.match(visible,/上一版 AI 评价与建议/);
+  assert.match(visible,/当前保留第 2 次提交的得分与评价/);
+  assert.match(visible,/已区分两侧来源/);
+  assert.match(visible,/补充检测生长作用的方法/);
+  assert.match(visible,/当前提交：/);
+  if(status==='failed')assert.match(html,/data-score-retry="next"/);
+  Object.assign(scores.stages[0],{status:'ready',total:90,retained_score:null,feedback:{source:'ai',strengths:[{key:'design',text:'新方案证据完整'}],improvements:[]}});
+  const updated=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  assert.match(updated,/新方案证据完整/);
+  assert.doesNotMatch(updated,/补充检测生长作用的方法|上一版 AI/);
+});
+
+test('teacher feedback handles first submission, review attribution and escaping',()=>{
+  const a=setup(),scores=teacherFeedbackFixture(),score=scores.stages[0];
+  a.run("S.user={role:'teacher'};S.lesson.flow_version=3;S.stage=2");
+  score.status='corrected';score.feedback.source='teacher_review';score.feedback.strengths[0].text='<img src=x onerror=bad>';
+  const reviewed=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  assert.match(reviewed,/教师复核后的评价与建议/);
+  assert.match(reviewed,/&lt;img/);assert.doesNotMatch(reviewed,/<img/);
+  Object.assign(score,{status:'pending',total:null,feedback:null,items:[]});
+  const pending=a.run(`scoreHTML(${JSON.stringify(scores)},true)`);
+  assert.match(pending,/评价完成后会显示在这里/);
+  assert.doesNotMatch(pending,/已区分两侧来源|补充检测生长作用的方法/);
+});

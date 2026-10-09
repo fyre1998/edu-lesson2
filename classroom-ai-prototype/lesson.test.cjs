@@ -919,3 +919,62 @@ test('teacher feedback handles first submission, review attribution and escaping
   assert.match(pending,/评价完成后会显示在这里/);
   assert.doesNotMatch(pending,/已区分两侧来源|补充检测生长作用的方法/);
 });
+
+
+function teacherMaterialsFixture(){
+  return {work:{fields:{design:'尚未提交的草稿文字'},file_ids:['draft-photo']},
+    versions:[
+      {id:'v1',fields:{design:'上一版实验方案'},file_ids:['old-photo'],updated:10},
+      {id:'v2',fields:{design:'最新文字\n控制温度 <一致>'},file_ids:['new-photo','new-photo-2'],updated:20}
+    ],files:['old-photo','new-photo','new-photo-2','draft-photo'].map(id=>({id,name:id+'.jpg',preview:true,size:100,uploader:'第 1 组'}))};
+}
+
+test('teacher submitted materials show the latest submitted text and all its images, excluding drafts and earlier files',()=>{
+  const a=setup(),work=teacherMaterialsFixture();
+  a.run("S.lesson.flow_version=4;S.content.content.fields=[{key:'design',label:'本组的实验方案'}]");
+  const html=a.run(`teacherSubmittedWorkHTML(${JSON.stringify(work)})`);
+  assert.match(html,/本组提交的实验方案/);assert.match(html,/第 2 次提交/);
+  assert.match(html,/最新文字\n控制温度 &lt;一致&gt;/);
+  assert.equal((html.match(/class="record-image"/g)||[]).length,2);
+  for(const id of ['new-photo','new-photo-2'])assert.ok(html.includes('/api/classroom/files/'+id+'?preview=true'));
+  assert.match(html,/target="_blank" rel="noopener"/);
+  assert.doesNotMatch(html,/尚未提交的草稿|上一版实验方案|old-photo|draft-photo|尚未填写|<一致>/);
+});
+
+test('teacher submitted materials support photo-only and text-only submissions without empty field placeholders',()=>{
+  const a=setup(),work=teacherMaterialsFixture();
+  a.run("S.lesson.flow_version=4;S.content.content.fields=[{key:'design',label:'本组的实验方案'},{key:'summary',label:'解释'}]");
+  work.versions.at(-1).fields={design:'  '};
+  const photos=a.run(`teacherSubmittedWorkHTML(${JSON.stringify(work)})`);
+  assert.equal((photos.match(/class="record-image"/g)||[]).length,2);
+  assert.doesNotMatch(photos,/尚未填写|<dt>/);
+  work.versions.at(-1).fields={design:'纯文字方案'};work.versions.at(-1).file_ids=[];
+  const text=a.run(`teacherSubmittedWorkHTML(${JSON.stringify(work)})`);
+  assert.match(text,/纯文字方案/);assert.doesNotMatch(text,/<img|尚未填写|<dt>解释/);
+  work.versions=[];
+  const empty=a.run(`teacherSubmittedWorkHTML(${JSON.stringify(work)})`);
+  assert.match(empty,/尚未提交材料/);assert.doesNotMatch(empty,/尚未提交的草稿|<img/);
+});
+
+test('teacher group detail refreshes submitted materials when a new submission arrives',()=>{
+  const a=setup(),work=teacherMaterialsFixture();
+  a.run(`Object.assign(S,{user:{role:'teacher'},group:1,roster:{groups:[{id:1,members:['第 1 组']}]},groups:[{id:1,status:'已提交',scores:null,chats:[]}],work:${JSON.stringify(work)}});S.lesson.flow_version=4;S.content.content.fields=[{key:'design',label:'本组的实验方案'}];renderDetail()`);
+  const materials=()=>a.el('#groupDetail').innerHTML.match(/<section class="teacher-submitted-work">[\s\S]*?<\/section>/)?.[0]||'';
+  assert.match(materials(),/最新文字/);assert.match(materials(),/new-photo-2/);
+  assert.doesNotMatch(materials(),/old-photo|draft-photo/);
+  a.run("S.work.versions.push({id:'v3',fields:{design:'再次修订后的方案'},file_ids:[],updated:30});renderDetail()");
+  assert.match(materials(),/第 3 次提交/);assert.match(materials(),/再次修订后的方案/);
+  assert.doesNotMatch(materials(),/最新文字|new-photo/);
+  a.run('S.work.versions=[];renderDetail()');
+  assert.match(materials(),/尚未提交材料/);assert.doesNotMatch(materials(),/尚未提交的草稿|<img/);
+});
+
+
+test('teacher submitted images use the second lesson URL prefix',()=>{
+  const a=setup('https://lsclass.top/lesson/lesson.js'),work=teacherMaterialsFixture();
+  a.run("S.lesson.flow_version=5;S.content.content.fields=[{key:'design',label:'实验方案'}]");
+  const html=a.run(`teacherSubmittedWorkHTML(${JSON.stringify(work)})`);
+  assert.match(html,/href="\/lesson\/api\/classroom\/files\/new-photo\?preview=true"/);
+  assert.match(html,/src="\/lesson\/api\/classroom\/files\/new-photo-2\?preview=true"/);
+  assert.doesNotMatch(html,/(?:src|href)="\/api\//);
+});

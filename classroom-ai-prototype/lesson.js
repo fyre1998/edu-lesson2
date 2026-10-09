@@ -264,6 +264,13 @@ function fieldsHTML(fields, projection=false) {
 function versionFiles(ids,files) {
   return ids.map(id=>files.find(f=>f.id===id)).filter(Boolean).map(f=>f.preview?`<a href="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" target="_blank" rel="noopener"><img class="record-image" src="${publicURL('/api/classroom/files/')}${encodeURIComponent(f.id)}?preview=true" alt="${esc(f.name)}" loading="lazy"></a>`:fileHTML(f)).join('');
 }
+function teacherSubmittedWorkHTML(work) {
+  const version=work.versions.at(-1), title=isInquiry()&&S.stage===1?'本组提交的实验方案':'本组最新提交的成果';
+  if(!version)return `<section class="teacher-submitted-work"><h3>${title}</h3><p class="fine">尚未提交材料。</p></section>`;
+  const pictureIds=isModel()?[...fileIds(version.fields,'model_files'),...fileIds(version.fields,'discussion_files')]:[];
+  const files=versionFiles(version.file_ids.filter(id=>!pictureIds.includes(id)),work.files);
+  return `<section class="teacher-submitted-work"><h3>${title}</h3><p class="fine">第 ${work.versions.length} 次提交 · ${stamp(version.updated)}</p>${fieldsHTML(version.fields,true)}${files}</section>`;
+}
 function collectFields() { return {...S.work?.work.fields,...Object.fromEntries($$('[data-field]').map(el=>[el.dataset.field,el.value]))}; }
 function localDraft() { if(!S.user || isTeacher() || !S.lesson) return; try { sessionStorage.setItem(draftKey(),JSON.stringify({fields:collectFields(),file_ids:S.work.work.file_ids,revision:S.work.work.revision})); } catch {} }
 function restoreLocalDraft() {
@@ -458,7 +465,7 @@ function renderDetail() {
   if($('#groupDetail').dataset.snapshot===snapshot)return;
   const context=JSON.stringify([S.lesson.id,S.stage,S.group]);
   const openStates=$('#groupDetail').dataset.context===context?$$('#groupDetail details').map(d=>d.open):[];
-  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${fieldsHTML(w.work.fields)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()?w.versions:[],w.files,false)}</details></div>`;
+  $('#groupDetail').innerHTML=`<div class="teacher-detail-title"><h2>第 ${g.id} 组 · ${esc(g.status)}</h2><button data-present-group="${g.id}">展示本组</button></div><p class="fine">${esc(S.roster.groups.find(x=>x.id===g.id)?.members.join('、'))}</p><div id="teacherScore">${scoreHTML(g.scores,true)}</div>${teacherSubmittedWorkHTML(w)}${isInquiry()&&S.stage===1?matchHTML(w.result_match):''}${S.stage===(S.lesson.assignment_stage||2)?assignmentHTML(w.assignment):''}${S.stage===(S.lesson.assignment_stage||2)&&S.lesson.release_results&&(S.lesson.flow_version===2||w.versions.length)&&S.lesson.status==='live'?'<button id="adjustButton">核对／调整假设情境</button>':''}<h3>本组附件</h3>${w.files.length?w.files.map(f=>fileHTML(f)).join(''):'<p class="fine">暂无上传资料</p>'}<details><summary>提交与修改记录（${w.versions.length}）</summary>${w.versions.map((v,i)=>`<article class="version"><h3>第 ${i+1} 次 · ${stamp(v.updated)}</h3>${fieldsHTML(v.fields)}${versionFiles(v.file_ids,w.files)}${versionExtras(v)}</article>`).join('')||'<p>尚未提交</p>'}</details><div class="teacher-chat"><details><summary>本组 AI 对话（${g.chats.length+(isInquiry()?w.versions.length:0)} 轮）</summary>${chatsHTML(g.chats,isInquiry()?w.versions:[],w.files,false)}</details></div>`;
   $$('#groupDetail details').forEach((d,i)=>{if(i<openStates.length)d.open=openStates[i];});
   $('#groupDetail').dataset.context=context;
   $('#groupDetail').dataset.snapshot=snapshot;

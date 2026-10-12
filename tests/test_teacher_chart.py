@@ -87,4 +87,4 @@ def test_speech_errors_are_actionable_and_do_not_log_sensitive_payloads(env, mon
     result=client.post('/api/classroom/transcriptions',data={'lesson_id':lid,'stage':1,'request_id':str(uuid.uuid4())},
                        files={'file':('speech.webm',audio)})
     assert result.status_code==200
-    assert successful[0][1]['model']=='qwen/qwen3-asr-1.7b'
+    assert successful[0][1]['model']=='qwen/qwen3-asr-0.6b'

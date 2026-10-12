@@ -13,7 +13,7 @@ from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 logger = logging.getLogger(__name__)
-DEFAULT_STT_MODEL = 'qwen/qwen3-asr-1.7b'
+DEFAULT_STT_MODEL = 'qwen/qwen3-asr-0.6b'
 
 
 def install_speech(router, Base, db, identity, lesson_api, rate_limit):

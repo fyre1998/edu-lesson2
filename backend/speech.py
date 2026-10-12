@@ -26,9 +26,15 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
     @router.post('/transcriptions')
     async def transcribe(file:UploadFile,lesson_id:str=Form(...),stage:int=Form(...),request_id:str=Form(...),
                          user=Depends(identity),session=Depends(db)):
-        if user.role!='student':raise HTTPException(403,'请使用小组身份录音')
+        if user.role not in ('student','teacher'):raise HTTPException(403,'请使用小组或教师身份录音')
         lesson=lesson_api.get(session,lesson_id,stage,write=True)
-        lesson_api.group_exists(lesson,user.group_id)
+        if user.role=='teacher':
+            if lesson_api.config(lesson)[0] not in (4,5) or stage!=1:
+                raise HTTPException(403,'教师语音输入仅用于葡萄实验的第一环节')
+            speaker=f'teacher:{user.name}'
+        else:
+            lesson_api.group_exists(lesson,user.group_id)
+            speaker=user.group_id
         if not 8<=len(request_id)<=80:raise HTTPException(422,'录音请求编号无效')
         try: audio=await file.read(10*1024*1024+1)
         finally: await file.close()
@@ -37,17 +43,17 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
         fmt=('webm' if audio.startswith(b'\x1aE\xdf\xa3') else 'ogg' if audio.startswith(b'OggS') else
              'wav' if audio.startswith(b'RIFF') and audio[8:12]==b'WAVE' else 'm4a' if audio[4:8]==b'ftyp' else None)
         if not fmt:raise HTTPException(400,'录音格式不支持，请使用浏览器录音')
-        key=hashlib.sha256(f'{lesson_id}:{user.group_id}:{stage}:{request_id}'.encode()).hexdigest()
+        key=hashlib.sha256(f'{lesson_id}:{speaker}:{stage}:{request_id}'.encode()).hexdigest()
         fingerprint=hashlib.sha256(audio).hexdigest()
         existing=session.get(Transcription,key)
         if existing:
             if existing.fingerprint!=fingerprint:raise HTTPException(409,'录音编号已用于其他内容')
             return {'text':existing.text,'request_id':request_id}
-        if user.group_id in running:raise HTTPException(409,'本组还有一段语音正在转写')
+        if speaker in running:raise HTTPException(409,'还有一段语音正在转写，请稍候')
         api_key=os.getenv('STT_API_KEY') or os.getenv('AI_API_KEY')
         if not api_key:raise HTTPException(503,'语音转写尚未配置，仍可打字输入')
-        rate_limit(('classroom-stt',user.group_id),80,3600)
-        running.add(user.group_id)
+        rate_limit(('classroom-stt',speaker),80,3600)
+        running.add(speaker)
         try:
             async with slots:
                 async with httpx.AsyncClient(timeout=70) as client:
@@ -64,4 +70,4 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
                 session.add(Transcription(key=key,fingerprint=fingerprint,text=text.strip()));session.commit()
                 return {'text':text.strip(),'request_id':request_id}
         except (httpx.HTTPError,ValueError,TypeError):raise HTTPException(502,'语音转写连接失败，请重试或打字输入') from None
-        finally:running.discard(user.group_id)
+        finally:running.discard(speaker)

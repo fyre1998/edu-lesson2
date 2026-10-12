@@ -80,6 +80,7 @@ async function api(path, options={}) {
   return data;
 }
 function reset() {
+  globalThis.teacherChart?.reset();
   closePresentation();
   closeSummaryPresentation();
   $('#lessonMaterials').open=false;
@@ -113,6 +114,7 @@ function lessonOptions() {
   if(S.lesson) $('#lessonSelect').value=S.lesson.id;
 }
 async function loadLessons(preferred) {
+  globalThis.teacherChart?.reset();
   if(isObserver())$('#historyDialog').close();
   globalThis.classroomSidebar?.reset();
   closePresentation();
@@ -136,6 +138,7 @@ async function loadLessons(preferred) {
   await loadStage(S.lesson.stage);
 }
 async function loadStage(stage) {
+  globalThis.teacherChart?.cancel();
   globalThis.classroomSidebar?.reset();
   closePresentation();
   closeSummaryPresentation();
@@ -460,6 +463,7 @@ async function handleSummaryClick(e) {
 }
 
 function renderTeacher() {
+  globalThis.teacherChart?.refresh();
   void refreshTeacherSummary();
   $('#overviewSummary').textContent=`${S.groups.filter(g=>g.status==='已提交').length} / ${S.lesson.group_count} 组已提交 · 状态来自本环节成果`;
   if(S.stage===S.lesson.assignment_stage&&S.lesson.release_results)$('#overviewSummary').textContent+=` · ${S.groups.filter(g=>g.assignment).length} / ${S.lesson.group_count} 组已分发预期结果`;
@@ -806,8 +810,8 @@ $('#comparison').addEventListener('click',e=>{if(e.target.closest('a'))pausePres
 $('#fullscreenButton').addEventListener('click',()=>toggleFullscreen($('#presentationSurface')));
 document.addEventListener('fullscreenchange',updateFullscreenButtons);
 $('#legacyButton').addEventListener('click',()=>legacy().catch(e=>toast(e.message)));$('#closeHistory').addEventListener('click',()=>$('#historyDialog').close());
-window.addEventListener('beforeunload',e=>{globalThis.lessonVoice?.cancel();if(S.edit!==S.savedEdit||S.uploading||S.sending){localDraft();e.preventDefault();e.returnValue='';}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)globalThis.lessonVoice?.cancel();if(document.hidden&&S.user&&!isTeacherView()&&S.edit!==S.savedEdit)saveWork(false);});
+window.addEventListener('beforeunload',e=>{globalThis.lessonVoice?.cancel();globalThis.teacherChart?.cancel();if(S.edit!==S.savedEdit||S.uploading||S.sending){localDraft();e.preventDefault();e.returnValue='';}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){globalThis.lessonVoice?.cancel();globalThis.teacherChart?.cancelVoice();}if(document.hidden&&S.user&&!isTeacherView()&&S.edit!==S.savedEdit)saveWork(false);});
 async function boot() {try{S.roster=await api('/roster');$('#loginGroup').innerHTML=S.roster.groups.map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');names();try{await activate(await api('/me'));}catch(e){if(e.status!==401)$('#loginError').textContent=e.message;}}catch(e){$('#loginError').textContent='课堂服务暂时无法连接，请刷新后重试。';}}
 installWidgets();
 document.addEventListener('click',async e=>{
@@ -832,4 +836,9 @@ $('#voiceStart').addEventListener('click',()=>{if(!busy()&&S.lesson?.status==='l
 $('#voiceStop').addEventListener('click',()=>lessonVoice.stop());$('#voiceCancel').addEventListener('click',()=>lessonVoice.cancel());
 $('#workFields').addEventListener('click',handleFieldVoiceClick);
 $('#chatUpload').addEventListener('click',()=>choosePicture(pictureTarget()));$('#chatCamera').addEventListener('click',()=>choosePicture(pictureTarget(),true));$('#chatSubmit').addEventListener('click',()=>{if(!busy())submitFinalWork();});
+globalThis.teacherChart=createTeacherChart({
+  getContext:()=>isTeacher()&&isGrape()&&S.stage===1?`${S.user.name}:${S.lesson.id}:${S.stage}`:'',
+  canEdit:()=>S.lesson?.status==='live',
+  transcribe:async(blob,context,signal)=>{const body=new FormData();body.append('file',blob,'speech');body.append('lesson_id',S.lesson.id);body.append('stage',S.stage);body.append('request_id',crypto.randomUUID());return (await api('/transcriptions',{method:'POST',body,signal})).text;}
+});
 boot();setInterval(poll,5000);setInterval(pollSubmission,1000);

@@ -36,7 +36,8 @@ def test_proxy_subpath_preserves_login_uploads_and_first_lesson_cookie(tmp_path,
             assert landing.status_code == 200 and 'lesson.js' in landing.text
             assert client.get('/lesson/api/health').json()['app'] == 'lesson2_edu'
             assert 'blob:' in landing.headers['content-security-policy']
-            for path in ['paths.js', 'lesson.js', 'lesson.css', 'workspace/', 'workspace/paths.js']:
+            for path in ['paths.js', 'lesson.js', 'lesson.css', 'teacher-chart.js', 'teacher-chart.css',
+                         'assets/grape-mass-chart.png', 'workspace/', 'workspace/paths.js']:
                 assert client.get('/lesson/' + path).status_code == 200
             login = client.post('/lesson/api/classroom/login', json={
                 'role': 'student', 'groupId': 1, 'code': 'lesson2-test',

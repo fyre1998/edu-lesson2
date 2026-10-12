@@ -1,0 +1,17 @@
+.teacher-support{display:grid;gap:20px;min-width:0}
+.teacher-chart .panel-heading{align-items:flex-start;margin-bottom:10px}
+.teacher-chart .panel-heading .state{white-space:nowrap}
+.teacher-chart-intro{margin:0 0 18px;color:var(--muted);font-size:.86rem;line-height:1.7}
+.teacher-chart textarea{min-height:116px;resize:vertical;line-height:1.7}
+.teacher-chart-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:12px}
+.teacher-chart-actions .actions{flex-wrap:wrap}
+.teacher-chart-actions .primary{min-width:94px}
+.teacher-chart .is-recording{color:#9d352d;border-color:#d09b95;background:#fff3f1}
+.teacher-chart-status{margin:12px 0 0;min-height:1.5em;color:var(--muted);font-size:.82rem;line-height:1.6;overflow-wrap:anywhere}
+.teacher-chart-status.is-loading::before{content:"";display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;vertical-align:-2px;animation:teacher-chart-spin .9s linear infinite}
+.teacher-chart-result{margin:18px 0 0;border-top:1px solid var(--line);padding-top:18px}
+.teacher-chart-result a{display:block;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:white}
+.teacher-chart-result img{display:block;width:100%;height:auto}
+.teacher-chart-result figcaption{margin-top:8px;color:var(--muted);font-size:.78rem;text-align:right}
+@keyframes teacher-chart-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.teacher-chart-status.is-loading::before{animation:none}}

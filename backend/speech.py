@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import time
 
@@ -10,6 +11,9 @@ import httpx
 from fastapi import Depends, Form, HTTPException, UploadFile
 from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
+logger = logging.getLogger(__name__)
+DEFAULT_STT_MODEL = 'qwen/qwen3-asr-1.7b'
 
 
 def install_speech(router, Base, db, identity, lesson_api, rate_limit):
@@ -54,13 +58,18 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
         if not api_key:raise HTTPException(503,'语音转写尚未配置，仍可打字输入')
         rate_limit(('classroom-stt',speaker),80,3600)
         running.add(speaker)
+        model=os.getenv('STT_MODEL') or DEFAULT_STT_MODEL
         try:
             async with slots:
                 async with httpx.AsyncClient(timeout=70) as client:
                     reply=await client.post((os.getenv('STT_BASE_URL') or os.getenv('AI_BASE_URL','https://openrouter.ai/api/v1')).rstrip('/')+'/audio/transcriptions',
-                        headers={'Authorization':'Bearer '+api_key},json={'model':os.getenv('STT_MODEL') or 'openai/gpt-4o-mini-transcribe',
+                        headers={'Authorization':'Bearer '+api_key},json={'model':model,
                             'language':'zh','input_audio':{'data':base64.b64encode(audio).decode(),'format':fmt},'response_format':'json'})
+                if reply.status_code>=400:
+                    # Log routing diagnostics only, never audio, keys, or upstream response bodies.
+                    logger.warning('Speech provider rejected transcription: status=%s model=%s format=%s',reply.status_code,model,fmt)
                 if reply.status_code in (401,403):raise HTTPException(502,'语音服务拒绝了当前配置，请联系教师检查转写模型与密钥；仍可打字输入')
+                if reply.status_code==404:raise HTTPException(503,'语音模型当前没有可用服务，请联系教师更新转写配置；仍可打字输入')
                 if reply.status_code==429:raise HTTPException(503,'语音服务繁忙，请稍后重试或打字输入')
                 if reply.status_code>=400:raise HTTPException(502,'语音服务暂时不可用，请重试或打字输入')
                 text=reply.json().get('text','')

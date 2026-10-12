@@ -117,12 +117,12 @@ AI 输入框按 Enter 发送，Shift+Enter 换行；中文输入法选字时不�
 ```dotenv
 STT_BASE_URL=
 STT_API_KEY=
-STT_MODEL=openai/gpt-4o-mini-transcribe
+STT_MODEL=qwen/qwen3-asr-1.7b
 ```
 
 空地址和密钥复用 `AI_BASE_URL`、`AI_API_KEY`，请求采用 OpenRouter `/audio/transcriptions` JSON 格式。`STT_BASE_URL` 应填到 `/api/v1`，不是完整接口路径。语音模型与对话／视觉模型分别配置，按服务商用量收费。
 
-2026-09-16 本地实测原定模型被服务商返回 403。本机 `.env` 因此设为 `STT_MODEL=qwen/qwen3-asr-flash-2026-02-10`，同一 OpenRouter 入口下八组并发测试成功。示例文件仍保留计划中的默认值，部署前应检查所选模型可用性。[OpenRouter STT 文档](https://openrouter.ai/docs/guides/overview/multimodal/stt)、[Qwen 模型说明](https://openrouter.ai/qwen/qwen3-asr-flash-2026-02-10)。
+2026-10-12 排查发现，原配置 `qwen/qwen3-asr-flash-2026-02-10` 已无可用服务节点，转写请求返回 404。现改用 `qwen/qwen3-asr-1.7b`，并在发布时用中文测试音频实际验证转写；仅通过登录、权限或健康检查不能证明语音服务可用。上游返回 404 时，页面会明确提示更新转写配置，服务日志只记录状态码、模型和音频格式，不记录音频、密钥或上游响应正文。[OpenRouter STT 文档](https://openrouter.ai/docs/guides/overview/multimodal/stt)、[Qwen 模型说明](https://openrouter.ai/qwen/qwen3-asr-1.7b)。
 
 本机可用 `localhost`／`127.0.0.1`。其他电脑访问需受信任的 HTTPS；普通局域网 HTTP 地址通常不能申请麦克风。摄像头同样需要安全上下文。[浏览器麦克风要求](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)。第二课的生产部署尚未配置，进度与后续步骤见项目根目录 README；正式课堂需验证公网 HTTPS 与教室设备。
 

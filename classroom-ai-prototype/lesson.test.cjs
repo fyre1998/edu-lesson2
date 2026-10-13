@@ -543,9 +543,9 @@ test('next and previous wrap all groups; late data cannot replace the current gr
   assert.equal(legacy.el('#presentationGroup').value,1);
 });
 
-test('automatic switching waits twenty seconds; details and close pause rotation',async()=>{
+test('automatic switching waits eight seconds; details and close pause rotation',async()=>{
   const a=presentationSetup();a.run('togglePresentationAuto()');
-  assert.equal(a.timers.size,1);let timer=[...a.timers.values()][0];assert.equal(timer.ms,20000);
+  assert.equal(a.timers.size,1);let timer=[...a.timers.values()][0];assert.equal(timer.ms,8000);
   const p=timer.fn();assert.equal(a.el('#presentationGroup').value,2);assert.equal(a.timers.size,0);
   a.calls[0].reply(presentedWork(2));await p;assert.equal(a.timers.size,1);
   a.run('pausePresentationAuto()');assert.equal(a.timers.size,0);assert.equal(a.run('presentation.auto'),false);

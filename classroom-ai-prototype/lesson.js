@@ -685,16 +685,16 @@ function renderPresentationControls() {
   $('#presentationMode').setAttribute('aria-pressed',String(chat));
   $('#presentationMode').classList.toggle('primary',chat);
   if(S.content)$('#presentationTitle').textContent=`第 ${$('#presentationGroup').value||S.group||1} 组 · 环节 ${S.stage} · ${chat?'小组与 AI 对话':'成果展示'}`;
-  $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（20 秒）';
+  $('#compareAuto').textContent=presentation.auto?'暂停自动切换':'自动切换（8 秒）';
   $('#compareAuto').setAttribute('aria-pressed',String(presentation.auto));
   $('#compareAuto').classList.toggle('primary',presentation.auto);
   for(const id of ['#comparePrevious','#compareNext','#compareAuto'])$(id).disabled=S.lesson?.group_count<2;
-  $('#compareStatus').textContent=presentation.auto?(presentation.loading?'自动切换中 · 正在读取…':'每 20 秒展示下一组'):'手动切换 · 首末组循环';
+  $('#compareStatus').textContent=presentation.auto?(presentation.loading?'自动切换中 · 正在读取…':'每 8 秒展示下一组'):'手动切换 · 首末组循环';
 }
 function schedulePresentation() {
   clearTimeout(presentation.timer); presentation.timer=null;
   if(presentation.auto && !presentation.loading && $('#presentationDialog').open) {
-    presentation.timer=setTimeout(()=>nextComparison().catch(e=>toast(e.message)),20000);
+    presentation.timer=setTimeout(()=>nextComparison().catch(e=>toast(e.message)),8000);
   }
 }
 function pausePresentationAuto() {

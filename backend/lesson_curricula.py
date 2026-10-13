@@ -1,5 +1,5 @@
 """Select frozen lesson definitions for live classes and persisted jobs."""
-from . import lesson_v2, lesson_v3, lesson_grape, lesson_grape_v5
+from . import lesson_v2, lesson_v3, lesson_grape, lesson_grape_v5, lesson_grape_history
 
 INQUIRY_FLOWS = (3, 4, 5)
 GRAPE_FLOWS = (4, 5)
@@ -14,7 +14,9 @@ def curriculum(flow_version):
 def scoring_rules(flow_version, rubric_version):
     current = curriculum(flow_version)
     if current is lesson_grape_v5 and rubric_version == 'grape-plan-20261002':
-        return current.SCORING_RULES_20261002
+        return lesson_grape_history.SCORING_RULES_20261002
+    if current is lesson_grape_v5 and rubric_version == 'grape-plan-20261006':
+        return lesson_grape_history.SCORING_RULES_20261006
     if current is lesson_v3 and rubric_version != current.RUBRIC_VERSION:
         return current.LEGACY_SCORING_RULES
     return current.SCORING_RULES

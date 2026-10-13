@@ -238,7 +238,11 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                     if is_v3:
                         system = system.rsplit('量规：', 1)[0] + (rules_snapshot or scoring_rules(payload['flow_version'], a.rubric_version)) + '\n量规：' + json.dumps(rubric, ensure_ascii=False)
                     allowed={'field:'+k for k in payload['fields']}|{'chat:'+str(c['id']) for c in payload['student_messages']}|{'file:'+fid for fid in ids}
-                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=(grape_curriculum.score_schema if is_grape else v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed))
+                    if is_grape and payload['flow_version'] == 5:
+                        response_schema = grape_curriculum.score_schema(rubric, allowed, a.rubric_version)
+                    else:
+                        response_schema = (grape_curriculum.score_schema if is_grape else v3.score_schema if is_mutant else v3.legacy_score_schema if is_v3 else grading_schema)(rubric, allowed)
+                    raw=await call_ai([{'role':'system','content':system},{'role':'user','content':parts}], response_schema=response_schema)
                     result=v2.parse_json(raw);items=result['items']
                     if len(items)!=len(rubric) or {i['key'] for i in items}!={r[0] for r in rubric}: raise ValueError()
                     if is_v3:
@@ -246,6 +250,8 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
                             raise ValueError()
                         components = result['treatment_parts']
                         limits = grape_curriculum.PART_LIMITS if is_grape else v3.PART_LIMITS if is_mutant else {'removed_tip': 10, 'decapitated_seedling': 10, 'lateral_placement': 20}
+                        if is_grape and payload['flow_version'] == 5:
+                            limits = grape_curriculum.part_limits(a.rubric_version)
                         if not isinstance(components, dict) or set(components) != set(limits) or any(type(components[k]) is not int or not 0 <= components[k] <= cap for k, cap in limits.items()):
                             raise ValueError()
                         next(i for i in items if i['key'] == 'treatment')['points'] = sum(components.values())

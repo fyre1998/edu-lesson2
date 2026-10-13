@@ -32,7 +32,7 @@ overview用不超过60字概括各组方案主要不足。discussion通常为空
 def grape_summary_prompt(flow_version=4):
     # Keep the existing evidence, length and teacher-only response contract.
     common = PROMPT[PROMPT.index('quote必须'):]
-    extra = "" if flow_version == 4 else "\n10.2方案阶段为葡萄芽的萌发、膨大、成熟。区分种子与芽萌发，接受有条件建议、不施用或补充验证；不要求未提供的唯一药剂答案。协同拮抗结合阶段和具体作用判断，不强制采纳AI意见，不要求另交苹果迁移。\n"
+    extra = "" if flow_version == 4 else "\n方案围绕葡萄膨大、成熟两个阶段及特殊情形下的处置调整。接受有条件建议、不施用或补充验证；不要求未提供的唯一药剂答案。协同拮抗结合阶段和具体作用判断，不强制采纳AI意见，不要求另交苹果迁移。\n"
     if flow_version == 5:
         extra += curriculum_for(flow_version).PLAN_LAYOUT_RULES
     focus = ('关注分阶段处理、数据与建议的对应、产量与品质权衡、情境和跟踪调整。' if flow_version == 4 else

@@ -14,6 +14,7 @@ from test_lesson_v3 import mock, matching, work
 from test_lesson_grape import chat, scoring as old_scoring
 from backend import lesson_grape_v5 as grape
 from backend import lesson_grape as old
+from backend import lesson_grape_history as history
 from backend.lesson_summary import grape_summary_prompt
 
 
@@ -31,7 +32,7 @@ def start(c, monkeypatch, stage=1, flow=None):
     return lid
 
 
-def scoring(readable=True, evidence='field:design', points=(10, 15, 15), adaptation=10, effect=20, environment=20):
+def scoring(readable=True, evidence='field:design', points=(20, 20), adaptation=10, effect=20, environment=20):
     return dict(readable=readable, clarification='' if readable else '照片中手写内容不清，请补拍。',
         treatment_parts=dict(zip(grape.PART_LIMITS, points)),
         items=[dict(key=r[0], points=p, missing=False, evidence=[evidence], reason='已有分阶段激素建议、作用和环境措施，特殊情境下的激素调整需完善。')
@@ -42,7 +43,7 @@ def scoring(readable=True, evidence='field:design', points=(10, 15, 15), adaptat
 
 def scoring_20261002(**kwargs):
     result = old_scoring(**kwargs)
-    result['treatment_parts'] = dict(zip(grape.PART_LIMITS, result['treatment_parts'].values()))
+    result['treatment_parts'] = dict(zip(history.PART_LIMITS, result['treatment_parts'].values()))
     return result
 
 
@@ -105,7 +106,8 @@ def test_default_curriculum_has_gated_current_assets_and_no_early_results(env, m
             response = c.get(image['url'])
             assert response.status_code == 200
             assert response.content == Path('backend/lesson_assets', image['url'].split('/')[-1]).read_bytes()
-    assert '芽的萌发' in stage['content']['fields'][0]['placeholder']
+    assert '葡萄膨大阶段、葡萄成熟阶段、特殊情形下的处置调整' in stage['content']['fields'][0]['placeholder']
+    assert '萌芽' not in stage['content']['task'] + stage['content']['fields'][0]['placeholder']
     assert '调控环境' in stage['content']['task'] and '跟踪指标' not in stage['content']['task']
 
 
@@ -156,10 +158,10 @@ def test_new_grading_history_summary_and_guidance(env, monkeypatch):
     lid = start(c, monkeypatch, 2)
     student(c, 1)
     replies = [scoring(), scoring(readable=False), scoring(adaptation=20),
-               dict(text='请核对芽萌发建议的证据。', step=2, mastery='已区分种子与芽')]
+               dict(text='请核对膨大期建议的证据。', step=2, mastery='已提出膨大期建议')]
     calls = mock(module, monkeypatch, lambda _: replies.pop(0))
     for revision in range(3):
-        assert submit(c, lid, 2, {'design': '按芽萌发、膨大、成熟提出激素方案、特殊情境调整、预期作用和环境调控'}, revision=revision).status_code == 201
+        assert submit(c, lid, 2, {'design': '按膨大、成熟提出激素方案、特殊情境调整、预期作用和环境调控'}, revision=revision).status_code == 201
         if revision == 1:
             assert work(c, lid, 2)['scores']['stages'][0]['retained_score']['total'] == 90
     history = work(c, lid, 2)['scores']['stages'][0]['history']
@@ -168,8 +170,8 @@ def test_new_grading_history_summary_and_guidance(env, monkeypatch):
     assert '环境措施不能替代激素调整' in grape_summary_prompt(5)
     assert '产量与品质权衡、情境和跟踪调整' in grape_summary_prompt(4)
     assert set(calls[0]['response_format']['json_schema']['schema']['properties']['treatment_parts']['properties']) == set(grape.PART_LIMITS)
-    assert chat(c, lid, '我们的萌芽建议有证据吗？', stage=2).json()['answer'] == '请核对芽萌发建议的证据。'
-    assert '芽的萌发' in calls[-1]['messages'][0]['content']
+    assert chat(c, lid, '我们的膨大期建议有证据吗？', stage=2).json()['answer'] == '请核对膨大期建议的证据。'
+    assert '葡萄膨大、成熟两个阶段' in calls[-1]['messages'][0]['content']
     classroom_login(c, teacher=True)
     summary = c.get(f'/api/classroom/lessons/{lid}/design-summary').json()
     assert summary['evaluated'] == 1 and summary['status'] == 'ready'
@@ -198,6 +200,61 @@ def test_twenty_point_dimensions_reject_excess_ai_and_teacher_marks(env, monkeyp
     assert c.put(f'/api/classroom/lessons/{lid}/assessments/{vid}', json={
         'points': points, 'reason': '核对分项上限'}).status_code == 422
     assert work(c, lid, 2)['scores']['total'] == 100
+
+
+@pytest.mark.parametrize('parts,total', [
+    ({'fruit_expansion': 20, 'fruit_maturity': 20}, 100),
+    ({'fruit_expansion': 20, 'fruit_maturity': 0}, 80),
+    ({'fruit_expansion': 0, 'fruit_maturity': 20}, 80),
+    ({'fruit_expansion': 21, 'fruit_maturity': 19}, None),
+    ({'bud_break': 10, 'fruit_expansion': 15, 'fruit_maturity': 15}, None),
+])
+def test_two_stage_scoring_contract_and_limits(env, monkeypatch, parts, total):
+    module, c = env
+    lid = start(c, monkeypatch, 2)
+    student(c, 1)
+    answer = scoring(adaptation=20)
+    answer['treatment_parts'] = parts
+    calls = mock(module, monkeypatch, lambda _: answer)
+    submit(c, lid, 2, {'design': '膨大阶段与成熟阶段的激素建议、预期作用、环境措施和特殊情形下的处置调整'})
+    score = work(c, lid, 2)['scores']['stages'][0]
+    assert score['status'] == ('ready' if total is not None else 'failed')
+    assert score['total'] == total
+    schema = calls[0]['response_format']['json_schema']['schema']['properties']['treatment_parts']
+    assert set(schema['required']) == {'fruit_expansion', 'fruit_maturity'}
+    assert {key: value['maximum'] for key, value in schema['properties'].items()} == {
+        'fruit_expansion': 20, 'fruit_maturity': 20}
+    for prompt in [calls[0]['messages'][0]['content'], grape.guide(2), grape_summary_prompt(5)]:
+        assert '不因缺少该阶段扣分、追问或归为教师汇总中的不足' in prompt
+        assert 'bud_break' not in prompt and '前三个阶段' not in prompt
+
+
+@pytest.mark.parametrize('with_snapshot', [True, False])
+def test_october_6_retry_preserves_three_stage_scores(env, monkeypatch, with_snapshot):
+    module, c = env
+    lid = start(c, monkeypatch, 2)
+    student(c, 1)
+    historical = scoring()
+    historical['treatment_parts'] = dict(history.PART_LIMITS)
+    replies = [httpx.Response(502), historical]
+    calls = mock(module, monkeypatch, lambda _: replies.pop(0))
+    vid = submit(c, lid, 2, {'design': '历史四行方案'}).json()['submission_id']
+    with module.engine.begin() as db:
+        payload = json.loads(db.execute(text('SELECT payload FROM lesson_assessments WHERE version_id=:id'), {'id': vid}).scalar())
+        payload['rubric_snapshot'] = history.RUBRIC_20261006[2]
+        if with_snapshot:
+            payload['scoring_rules_snapshot'] = history.SCORING_RULES_20261006
+        else:
+            payload.pop('scoring_rules_snapshot')
+        db.execute(text('UPDATE lesson_assessments SET rubric_version=:version,payload=:payload WHERE version_id=:id'),
+                   dict(version='grape-plan-20261006', payload=json.dumps(payload), id=vid))
+    assert c.post(f'/api/classroom/lessons/{lid}/assessments/{vid}/retry').status_code == 200
+    assert work(c, lid, 2)['scores']['total'] == 90
+    schema = calls[-1]['response_format']['json_schema']['schema']['properties']['treatment_parts']['properties']
+    assert {key: value['maximum'] for key, value in schema.items()} == history.PART_LIMITS
+    assert history.SCORING_RULES_20261006 in calls[-1]['messages'][0]['content']
+    classroom_login(c, teacher=True)
+    assert c.get(f'/api/classroom/lessons/{lid}/design-summary').json()['evaluated'] == 0
 
 
 def test_retry_uses_saved_rules_even_when_current_rules_change(env, monkeypatch):
@@ -229,14 +286,14 @@ def test_original_v5_retry_and_history_keep_original_dimensions(env, monkeypatch
     with module.engine.begin() as db:
         payload = json.loads(db.execute(text('SELECT payload FROM lesson_assessments WHERE version_id=:id'), {'id': vid}).scalar())
         payload.pop('scoring_rules_snapshot')
-        payload['rubric_snapshot'] = grape.RUBRIC_20261002[2]
+        payload['rubric_snapshot'] = history.RUBRIC_20261002[2]
         db.execute(text('UPDATE lesson_assessments SET rubric_version=:version,payload=:payload WHERE version_id=:id'),
                    dict(version='grape-plan-20261002', payload=json.dumps(payload), id=vid))
     assert c.post(f'/api/classroom/lessons/{lid}/assessments/{vid}/retry').status_code == 200
     old_score = work(c, lid, 2)['scores']['stages'][0]
     assert old_score['total'] == 90
-    assert [(i['label'], i['maximum']) for i in old_score['items']] == [(r[1], r[2]) for r in grape.RUBRIC_20261002[2]]
-    assert grape.SCORING_RULES_20261002 in calls[-1]['messages'][0]['content']
+    assert [(i['label'], i['maximum']) for i in old_score['items']] == [(r[1], r[2]) for r in history.RUBRIC_20261002[2]]
+    assert history.SCORING_RULES_20261002 in calls[-1]['messages'][0]['content']
     assert grape.SCORING_RULES not in calls[-1]['messages'][0]['content']
     classroom_login(c, teacher=True)
     assert c.put(f'/api/classroom/lessons/{lid}/assessments/{vid}', json={

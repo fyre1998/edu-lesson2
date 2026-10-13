@@ -60,6 +60,26 @@ python scripts/start_classroom_preview.py --foreground
 
 第二课速度优先配置为 `AI_MODEL=deepseek/deepseek-v4.1-flash`、`AI_REASONING_EFFORT=low`、`AI_MAX_TOKENS=8192`，用于图片识别、课堂对话、方案评分与教师汇总。固定使用 V4.1 Flash，不使用会随时间更新的 latest 别名。`AI_PROVIDER_SORT=throughput` 在 OpenRouter 上优先选择输出较快的服务商，同时保留严格 JSON 支持和服务商故障回退；留空沿用默认路由，其他接口不发送该参数。简单文字处理继续直接匹配课件数据，无需等待 AI。语音转写仍由 `STT_MODEL` 单独配置。
 
+## 千问官方语音识别
+
+学生语音输入和教师图表口述共用 `/api/classroom/transcriptions`。在服务端 `.env` 配置：
+
+```dotenv
+STT_PROVIDER=dashscope
+STT_MODEL=qwen-audio-3.1-asr-flash-message
+DASHSCOPE_API_KEY=填写北京地域的百炼APIKey
+DASHSCOPE_REGION=cn-beijing
+DASHSCOPE_WORKSPACE_ID=
+```
+
+`DASHSCOPE_WORKSPACE_ID` 可填写百炼业务空间 ID，以使用专属域名；留空使用北京公共域名 `dashscope.aliyuncs.com`。新加坡密钥需将地域改为 `ap-southeast-1`。此路径只读取 `DASHSCOPE_API_KEY`（或专用的 `STT_API_KEY`），不使用课堂对话的 `AI_API_KEY`，不把密钥发送到浏览器。
+
+安装 `requirements.txt` 后重启服务；Docker 部署需重新构建并创建应用容器，且服务器 `.env` 需要单独配置密钥。`imageio-ffmpeg` 在支持的平台随安装包提供 FFmpeg，无需把录音保存到磁盘。浏览器的 WebM、Ogg、MP4/M4A 和 WAV 录音会在内存中转换成 16 kHz 单声道 PCM，由后端通过 WebSocket 发送给千问，收到最终文字后沿用现有发送或填入草稿流程。仍保留 90 秒录音限制、身份校验、限流、重复请求去重和最多 8 段并行转写。
+
+协议依据：[WebSocket 接入](https://help.aliyun.com/zh/model-studio/qwen-asr-message-websocket-api)、[客户端事件](https://help.aliyun.com/zh/model-studio/qwen-asr-message-client-events)、[服务端事件](https://help.aliyun.com/zh/model-studio/qwen-asr-message-server-events)。自动化测试使用本地模拟服务；真实识别效果和账号权限需要配置有效 Key 后验证。
+
+需要沿用原语音供应商时，配置 `STT_PROVIDER=openrouter` 和对应的 `STT_MODEL`、`STT_BASE_URL`、`STT_API_KEY`。
+
 ## 测试
 
 结果识别和成果评分各允许8个后台任务同时执行，合计最多16个；课堂聊天、教师汇总和语音转写另行运行。应用连接池按需建立最多30个连接（`DB_POOL_SIZE=20`、`DB_MAX_OVERFLOW=10`），给后台任务和页面请求留出余量。内存SQLite保留原有连接池。修改配置后需要重启本地服务，Docker部署需重新创建应用容器；每个worker或副本各有独立连接池，扩容时应核对所有进程的连接总预算和数据库的`max_connections`，为管理连接留出空间。

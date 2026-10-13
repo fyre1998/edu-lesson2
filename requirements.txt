@@ -6,3 +6,5 @@ psycopg[binary]==3.3.5
 python-multipart==0.0.32
 httpx==0.28.1
 python-dotenv==1.2.3
+websockets==15.0.1
+imageio-ffmpeg==0.6.0

@@ -12,6 +12,8 @@ from fastapi import Depends, Form, HTTPException, UploadFile
 from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from . import qwen_speech
+
 logger = logging.getLogger(__name__)
 DEFAULT_STT_MODEL = 'qwen/qwen3-asr-0.6b'
 
@@ -54,25 +56,31 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
             if existing.fingerprint!=fingerprint:raise HTTPException(409,'录音编号已用于其他内容')
             return {'text':existing.text,'request_id':request_id}
         if speaker in running:raise HTTPException(409,'还有一段语音正在转写，请稍候')
-        api_key=os.getenv('STT_API_KEY') or os.getenv('AI_API_KEY')
+        configured_model=os.getenv('STT_MODEL','').strip()
+        provider=os.getenv('STT_PROVIDER','').strip().lower() or ('dashscope' if configured_model.startswith('qwen-audio-') else 'openrouter')
+        if provider not in ('dashscope','openrouter'):raise HTTPException(503,'语音服务类型配置无效，请联系教师检查')
+        api_key=(os.getenv('DASHSCOPE_API_KEY') or os.getenv('STT_API_KEY')) if provider=='dashscope' else (os.getenv('STT_API_KEY') or os.getenv('AI_API_KEY'))
         if not api_key:raise HTTPException(503,'语音转写尚未配置，仍可打字输入')
         rate_limit(('classroom-stt',speaker),80,3600)
         running.add(speaker)
-        model=os.getenv('STT_MODEL') or DEFAULT_STT_MODEL
+        model=configured_model or (qwen_speech.MODEL if provider=='dashscope' else DEFAULT_STT_MODEL)
         try:
             async with slots:
-                async with httpx.AsyncClient(timeout=70) as client:
-                    reply=await client.post((os.getenv('STT_BASE_URL') or os.getenv('AI_BASE_URL','https://openrouter.ai/api/v1')).rstrip('/')+'/audio/transcriptions',
-                        headers={'Authorization':'Bearer '+api_key},json={'model':model,
-                            'language':'zh','input_audio':{'data':base64.b64encode(audio).decode(),'format':fmt},'response_format':'json'})
-                if reply.status_code>=400:
-                    # Log routing diagnostics only, never audio, keys, or upstream response bodies.
-                    logger.warning('Speech provider rejected transcription: status=%s model=%s format=%s',reply.status_code,model,fmt)
-                if reply.status_code in (401,403):raise HTTPException(502,'语音服务拒绝了当前配置，请联系教师检查转写模型与密钥；仍可打字输入')
-                if reply.status_code==404:raise HTTPException(503,'语音模型当前没有可用服务，请联系教师更新转写配置；仍可打字输入')
-                if reply.status_code==429:raise HTTPException(503,'语音服务繁忙，请稍后重试或打字输入')
-                if reply.status_code>=400:raise HTTPException(502,'语音服务暂时不可用，请重试或打字输入')
-                text=reply.json().get('text','')
+                if provider=='dashscope':
+                    text=await qwen_speech.transcribe(audio,fmt,api_key,model)
+                else:
+                    async with httpx.AsyncClient(timeout=70) as client:
+                        reply=await client.post((os.getenv('STT_BASE_URL') or os.getenv('AI_BASE_URL','https://openrouter.ai/api/v1')).rstrip('/')+'/audio/transcriptions',
+                            headers={'Authorization':'Bearer '+api_key},json={'model':model,
+                                'language':'zh','input_audio':{'data':base64.b64encode(audio).decode(),'format':fmt},'response_format':'json'})
+                    if reply.status_code>=400:
+                        # Log routing diagnostics only, never audio, keys, or upstream response bodies.
+                        logger.warning('Speech provider rejected transcription: status=%s model=%s format=%s',reply.status_code,model,fmt)
+                    if reply.status_code in (401,403):raise HTTPException(502,'语音服务拒绝了当前配置，请联系教师检查转写模型与密钥；仍可打字输入')
+                    if reply.status_code==404:raise HTTPException(503,'语音模型当前没有可用服务，请联系教师更新转写配置；仍可打字输入')
+                    if reply.status_code==429:raise HTTPException(503,'语音服务繁忙，请稍后重试或打字输入')
+                    if reply.status_code>=400:raise HTTPException(502,'语音服务暂时不可用，请重试或打字输入')
+                    text=reply.json().get('text','')
                 if not isinstance(text,str) or not text.strip():raise HTTPException(422,'没有识别到说话内容，请靠近麦克风重试')
                 if len(text)>12000:raise HTTPException(422,'语音文字过长，请分段说话')
                 session.expire_all();lesson_api.get(session,lesson_id,stage,write=True)

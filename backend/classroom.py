@@ -148,6 +148,8 @@ def build_router(Base, db, digest, rate_limit, call_ai, secure, uploads, cookie_
                 raise HTTPException(401, '教师账号或访问密码不正确')
         elif body.role == 'student' and (not body.groupId or (body.name and body.name != f'第 {body.groupId} 组' and (body.groupId>len(ROSTER) or body.name not in ROSTER[body.groupId - 1]))):
             raise HTTPException(401, '学生姓名与小组不匹配')
+        if body.role == 'student' and body.groupId > lesson_api.login_group_count(session):
+            raise HTTPException(422, '当前课堂没有此小组，请重新选择')
         session.execute(delete(ClassroomSession).where(ClassroomSession.token == digest(request.cookies.get(SESSION_COOKIE, ''))))
         session.execute(delete(ClassroomSession).where(ClassroomSession.expires <= int(time.time())))
         token = secrets.token_urlsafe(32)

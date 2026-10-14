@@ -74,8 +74,8 @@ def test_observer_reads_teacher_details_and_current_files_without_generating_sum
         response = client.get('/api/classroom' + route)
         assert response.status_code == 200, (route, response.text)
         assert response.json() == expected[route]
-    assert len(client.get(f'/api/classroom/lessons/{lid}/groups?stage={stage}').json()) == 8
-    for group in range(1, 9):
+    assert len(client.get(f'/api/classroom/lessons/{lid}/groups?stage={stage}').json()) == 6
+    for group in range(1, 7):
         assert client.get(f'/api/classroom/lessons/{lid}/groups/{group}/stages/{stage}').status_code == 200
     assert client.get('/api/classroom/files/' + image['id'] + '?preview=true').status_code == 200
     response = client.get(f'/api/classroom/lessons/{lid}/design-summary')

@@ -24,6 +24,7 @@ from . import lesson_expected_results as expected
 
 ASSETS = Path(__file__).parent / 'lesson_assets'
 WRITE_LOCK = threading.RLock()  # Deployment intentionally uses one application worker.
+DEFAULT_GROUP_COUNT = 6
 
 
 class NewLesson(BaseModel):
@@ -68,11 +69,26 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
         __tablename__ = 'lesson_definitions'
         lesson_id: Mapped[str] = mapped_column(ForeignKey('lesson_runs.id'), primary_key=True)
         flow_version: Mapped[int] = mapped_column(Integer, default=2)
-        group_count: Mapped[int] = mapped_column(Integer, default=8)
+        group_count: Mapped[int] = mapped_column(Integer, default=DEFAULT_GROUP_COUNT)
 
     def config(lesson):
         d = object_session(lesson).get(Definition, lesson.id)
         return (d.flow_version, d.group_count) if d else (1, 6)
+
+    def login_group_count(session):
+        lesson = session.scalar(select(Lesson).where(Lesson.status == 'live').order_by(Lesson.created.desc(), Lesson.id))
+        return config(lesson)[1] if lesson else DEFAULT_GROUP_COUNT
+
+    def migrate_current_group_count(session):
+        """Use six groups for live 10.2 lessons; retain archived definitions and all work."""
+        with WRITE_LOCK:
+            definitions = session.scalars(select(Definition).join(Lesson).where(
+                Lesson.status == 'live', Definition.flow_version == 5, Definition.group_count == 8))
+            for definition in definitions:
+                definition.group_count = DEFAULT_GROUP_COUNT
+                record_event(session, definition.lesson_id, SimpleNamespace(name='系统调整'), 'group_count',
+                             dict(previous=8, current=DEFAULT_GROUP_COUNT))
+            session.commit()
 
     def stages_for(lesson):
         return STAGES if config(lesson)[0] == 1 else curriculum_for(config(lesson)[0]).STAGES
@@ -287,9 +303,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             session.commit()
 
     @router.get('/roster')
-    def roster():
-        from .classroom import ROSTER, TEACHERS
-        return dict(groups=[dict(id=i, members=[f'第 {i} 组']) for i in range(1,9)], teachers=TEACHERS)
+    def roster(session=Depends(db)):
+        from .classroom import TEACHERS
+        return dict(groups=[dict(id=i, members=[f'第 {i} 组']) for i in range(1, login_group_count(session)+1)], teachers=TEACHERS)
 
     @router.get('/lessons')
     def list_lessons(user=Depends(identity), session=Depends(db)):
@@ -308,7 +324,8 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
             lesson = Lesson(id=secrets.token_hex(12), title=body.title.strip() or ('植物激素与葡萄增产' if body.flow_version in GRAPE_FLOWS else '生长素探究课'))
             session.add(lesson); session.flush()
             if body.flow_version in (2, 3, 4, 5):
-                session.add(Definition(lesson_id=lesson.id, flow_version=body.flow_version, group_count=8)); session.flush()
+                group_count = DEFAULT_GROUP_COUNT if body.flow_version == 5 else 8
+                session.add(Definition(lesson_id=lesson.id, flow_version=body.flow_version, group_count=group_count)); session.flush()
             record_event(session, lesson.id, user, 'create', dict(title=lesson.title))
             session.commit()
             return public_lesson(lesson)
@@ -695,5 +712,6 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     matching = install_matching(router, Base, db, identity, check_group, get_lesson, config,
         Version, extensions.picture_parts, call_ai, ASSETS, WRITE_LOCK)
     return SimpleNamespace(extensions=extensions, config=config, group_exists=group_exists, Lesson=Lesson, FileContext=FileContext, ChatContext=ChatContext,
+                           login_group_count=login_group_count, migrate_current_group_count=migrate_current_group_count,
                            repair_released_results=repair_released_results,
                            get=get_lesson, check_file=check_file, prompt=prompt, chat_rows=chat_rows, guard_answer=guard_answer)

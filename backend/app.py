@@ -93,6 +93,7 @@ class Chat(Base):
 async def lifespan(app):
     Base.metadata.create_all(engine)
     with SessionLocal() as session:
+        classroom_router.lesson_api.migrate_current_group_count(session)
         classroom_router.lesson_api.repair_released_results(session)
     yield
 

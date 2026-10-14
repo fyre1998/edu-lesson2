@@ -611,7 +611,7 @@ async function uploadFiles(files,{submitToAI=false}={}) {
 async function present(group) {
   stopPresentation();
   presentation.mode='work';
-  $('#presentationGroup').innerHTML=S.roster.groups.filter(g=>g.id<=S.lesson.group_count).map(g=>`<option value="${g.id}">第 ${g.id} 组</option>`).join('');
+  $('#presentationGroup').innerHTML=Array.from({length:S.lesson.group_count},(_,i)=>`<option value="${i+1}">第 ${i+1} 组</option>`).join('');
   $('#presentationGroup').value=group||S.group||1;
   $('#presentationDialog').showModal(); await compare();
 }

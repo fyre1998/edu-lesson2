@@ -25,7 +25,7 @@ def start(c, monkeypatch, stage=1, flow=None):
     response = c.post('/api/classroom/lessons', json={} if flow is None else {'flow_version': flow})
     assert response.status_code == 201, response.text
     assert response.json()['flow_version'] == (flow or 5)
-    assert response.json()['group_count'] == 8
+    assert response.json()['group_count'] == (6 if flow in (None, 5) else 8)
     lid = response.json()['id']
     if stage > 1:
         assert c.patch(f'/api/classroom/lessons/{lid}', json={'stage': stage}).status_code == 200
@@ -80,7 +80,7 @@ def test_prose_and_changed_conditions_cannot_bypass_classifier(message):
 def test_default_curriculum_has_gated_current_assets_and_no_early_results(env, monkeypatch):
     _, c = env
     lid = start(c, monkeypatch)
-    student(c, 8)
+    student(c, 6)
     stage = c.get(f'/api/classroom/lessons/{lid}/stages/1').json()
     assert len(stage['stages']) == 2
     rendered = json.dumps(stage, ensure_ascii=False)
@@ -98,7 +98,7 @@ def test_default_curriculum_has_gated_current_assets_and_no_early_results(env, m
         ('激素处理的预期作用', 20), ('环境调控与品质改善', 20)]
     assert 'significance' not in json.dumps(guide)
     c.patch(f'/api/classroom/lessons/{lid}', json={'stage': 2})
-    student(c, 8)
+    student(c, 6)
     stage = c.get(f'/api/classroom/lessons/{lid}/stages/2').json()
     assert len(stage['content']['fields']) == 1
     for material in stage['materials']:
@@ -335,11 +335,11 @@ def test_failed_historical_jobs_retry_with_their_own_curriculum(env, monkeypatch
         assert db.execute(text('SELECT rubric_version FROM lesson_assessments WHERE version_id=:id'), {'id': version}).scalar() == curriculum.RUBRIC_VERSION
 
 
-def test_eight_groups_keep_separate_v5_results(env, monkeypatch):
+def test_six_groups_keep_separate_v5_results(env, monkeypatch):
     module, c = env
     lid = start(c, monkeypatch)
     cookies = []
-    for group in range(1, 9):
+    for group in range(1, 7):
         c.cookies.clear(); student(c, group); cookies.append(dict(c.cookies))
     monkeypatch.setenv('AI_API_KEY', 'unused')
     monkeypatch.setenv('AI_MODEL', 'unused')
@@ -353,8 +353,8 @@ def test_eight_groups_keep_separate_v5_results(env, monkeypatch):
             assert [(r['result_id'], r['mass']) for r in data['result_match']['matches']] == [('water', 170), ('ga3', 225)]
             return data['result_match']['version_id']
     async def run():
-        return await asyncio.gather(*(submit_one(group) for group in range(1, 9)))
-    assert len(set(c.portal.call(run))) == 8
+        return await asyncio.gather(*(submit_one(group) for group in range(1, 7)))
+    assert len(set(c.portal.call(run))) == 6
 
 
 @pytest.mark.parametrize('design,expected,status', [

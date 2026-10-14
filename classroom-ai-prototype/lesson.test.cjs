@@ -492,6 +492,16 @@ function presentedWork(id,status='ready'){
   ]}};
 }
 
+for(const count of [6,8])test(`projection lists all ${count} lesson groups even with a six-group login roster`,async()=>{
+  const a=presentationSetup(count);
+  a.run('S.roster={groups:Array.from({length:6},(_,i)=>({id:i+1}))}');
+  const pending=a.run(`present(${count})`);
+  assert.equal((a.el('#presentationGroup').innerHTML.match(/<option /g)||[]).length,count);
+  assert.match(a.el('#presentationGroup').innerHTML,new RegExp(`value="${count}"`));
+  a.calls[0].reply(presentedWork(count));
+  await pending;
+});
+
 test('teacher details and projection retain a labelled previous mark while grading',()=>{
   const a=presentationSetup(), w=presentedWork(1,'processing');
   const previous={version_id:'old',submission_number:1,total:12,maximum:20,status:'ready'};

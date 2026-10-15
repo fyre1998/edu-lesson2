@@ -254,7 +254,8 @@ def test_october_6_retry_preserves_three_stage_scores(env, monkeypatch, with_sna
     assert {key: value['maximum'] for key, value in schema.items()} == history.PART_LIMITS
     assert history.SCORING_RULES_20261006 in calls[-1]['messages'][0]['content']
     classroom_login(c, teacher=True)
-    assert c.get(f'/api/classroom/lessons/{lid}/design-summary').json()['evaluated'] == 0
+    summary = c.get(f'/api/classroom/lessons/{lid}/design-summary').json()
+    assert summary['evaluated'] == 1 and summary['status'] == 'ready'
 
 
 def test_retry_uses_saved_rules_even_when_current_rules_change(env, monkeypatch):

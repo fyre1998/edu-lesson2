@@ -200,6 +200,46 @@ def test_summary_rejects_invented_group_or_quote():
     with pytest.raises(ValueError): validate_result(result, [group])
 
 
+def test_october_6_assessments_recover_from_cached_waiting_without_rescoring(env, monkeypatch):
+    from backend import lesson_grape_v5 as grape, lesson_grape_history as history
+    from backend.lesson_summary import grape_summary_prompt
+    from test_lesson_grape_v5 import start as grape_start, scoring as grape_scoring
+
+    module, c = env
+    lid = grape_start(c, monkeypatch, 2)
+    calls = transport(module, monkeypatch, issue_summary, grader=grape_scoring)
+    for gid in range(1, 7):
+        student(c, gid)
+        assert submit(c, lid, 2, {'design': '只测总量，特殊情境下的调整待补充'}).status_code == 201
+    # Reproduce the live class: every latest assessment predates the worksheet update.
+    historical = grape_scoring()
+    historical['treatment_parts'] = dict(history.PART_LIMITS)
+    with module.engine.begin() as db:
+        db.execute(text('UPDATE lesson_assessments SET rubric_version=:rubric, result=:result'),
+                   dict(rubric='grape-plan-20261006', result=json.dumps(historical, ensure_ascii=False)))
+        saved = db.execute(text('SELECT * FROM lesson_assessments ORDER BY version_id')).all()
+    classroom_login(c, teacher=True)
+    url = f'/api/classroom/lessons/{lid}/design-summary'
+    with monkeypatch.context() as old_filter:
+        old_filter.setattr(grape, 'SUMMARY_RUBRIC_VERSIONS', (grape.RUBRIC_VERSION,))
+        c.get(url)
+        waiting = c.get(url).json()
+        assert waiting['status'] == 'waiting' and waiting['evaluated'] == 0
+        assert waiting['result'] is None
+        assert all(g['status'] == 'previous_task' for g in waiting['groups'])
+    previous_calls = len(calls)
+    pending = c.get(url).json()
+    assert pending['status'] == 'pending' and pending['evaluated'] == 6
+    recovered = c.get(url).json()
+    assert recovered['status'] == 'ready' and recovered['submitted'] == recovered['evaluated'] == 6
+    assert [s['group_id'] for s in recovered['result']['sources']] == list(range(1, 7))
+    assert recovered['result']['issues'][0]['group_ids'] == list(range(1, 7))
+    assert len(calls) == previous_calls + 1
+    assert '旧评价中仅因缺少葡萄芽萌发阶段而提出的扣分或建议不纳入汇总' in grape_summary_prompt(5)
+    with module.engine.connect() as db:
+        assert db.execute(text('SELECT * FROM lesson_assessments ORDER BY version_id')).all() == saved
+
+
 def test_mutant_task_prompt_and_legacy_assessment_retry(env, monkeypatch):
     from backend import lesson_v3 as v3
     module, c = env; lid = start(c, monkeypatch, 2)

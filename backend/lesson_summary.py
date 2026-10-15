@@ -13,7 +13,7 @@ from .lesson_curricula import curriculum as curriculum_for, INQUIRY_FLOWS, GRAPE
 from .ai_schemas import object_schema
 from .lesson_v2 import parse_json
 
-SUMMARY_VERSION = 'teacher-design-deficiencies-3'
+SUMMARY_VERSION = 'teacher-design-deficiencies-4'
 
 PROMPT = '''你是高中生物教师的课堂观察助手，逐组检查本次水稻突变体实验设计，汇总方案中实际存在的不足，供教师阅读、判断和点评。
 这是给教师看的设计诊断，不是给学生的提问清单、探究题或课堂讨论题。所有结论用简短、明确的陈述句。
@@ -35,6 +35,7 @@ def grape_summary_prompt(flow_version=4):
     extra = "" if flow_version == 4 else "\n方案围绕葡萄膨大、成熟两个阶段及特殊情形下的处置调整。接受有条件建议、不施用或补充验证；不要求未提供的唯一药剂答案。协同拮抗结合阶段和具体作用判断，不强制采纳AI意见，不要求另交苹果迁移。\n"
     if flow_version == 5:
         extra += curriculum_for(flow_version).PLAN_LAYOUT_RULES
+        extra += '\n部分评价保留提交时的旧量规。只归纳当前任务仍适用的不足；旧评价中仅因缺少葡萄芽萌发阶段而提出的扣分或建议不纳入汇总，不据此要求补写已删除阶段。\n'
     focus = ('关注分阶段处理、数据与建议的对应、产量与品质权衡、情境和跟踪调整。' if flow_version == 4 else
              '按阶段与激素处理建议40分、特殊情境下的激素调整20分、激素处理的预期作用20分、环境调控与品质改善20分归纳问题。'
              '特殊情境项只看高温、低温、远运等情况下怎样调整激素施用，环境措施不能替代激素调整；预期作用项看激素处理带来的变化；环境项看相应阶段的调控措施、方向与品质目标。'
@@ -121,6 +122,7 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
 
     def snapshot(session, lesson):
         curriculum = curriculum_for(config(lesson)[0])
+        compatible_rubrics = getattr(curriculum, 'SUMMARY_RUBRIC_VERSIONS', (curriculum.RUBRIC_VERSION,))
         latest = {}
         rows = session.scalars(select(Version).where(Version.lesson_id == lesson.id, Version.stage == 2)
                                .order_by(Version.revision.desc())).all()
@@ -131,7 +133,7 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
             v = latest.get(gid)
             a = session.get(Assessment, v.id) if v else None
             status = 'unsubmitted' if not v else 'pending' if not a else a.status
-            if a and a.rubric_version != curriculum.RUBRIC_VERSION:
+            if a and a.rubric_version not in compatible_rubrics:
                 status = 'previous_task'
             correction = json.loads(a.correction) if a else {}
             if correction and status != 'previous_task':
@@ -145,7 +147,7 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
             groups.append(dict(group_id=gid, version_id=v.id, revision=v.revision,
                                design=json.loads(v.data).get('design', ''),
                                items=result.get('items', []), correction=correction))
-        rules_version = [SUMMARY_VERSION, getattr(curriculum, 'PLAN_LAYOUT_RULES', '')]
+        rules_version = [SUMMARY_VERSION, getattr(curriculum, 'PLAN_LAYOUT_RULES', ''), compatible_rubrics]
         digest = hashlib.sha256(json.dumps([rules_version, curriculum.RUBRIC_VERSION, states], ensure_ascii=False,
                                            sort_keys=True).encode()).hexdigest()
         return digest, groups, states

@@ -11,6 +11,9 @@ from .ai_schemas import grading_schema, object_schema
 
 TITLE = legacy.TITLE
 RUBRIC_VERSION = 'grape-plan-20261013'
+# The October 13 worksheet removes bud break but keeps the same four dimensions.
+# Its preceding assessments remain evidence for this task, without being rescored.
+SUMMARY_RUBRIC_VERSIONS = (RUBRIC_VERSION, 'grape-plan-20261006')
 MATCH_VERSION = 'grape-mass-20261002'
 SOURCE = '教师提供的《植物激素10.2》课件第4页'
 RESULTS = {key: (label, {k: v for k, v in values.items() if k != 'significance'})

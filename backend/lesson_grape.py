@@ -70,7 +70,7 @@ def direct_matches(message):
 
 
 STAGES = {
-    1: dict(title='实验设计与实验数据', question='怎样设计实验比较植物生长调节剂对葡萄增产的效果？', minutes=None,
+    1: dict(title='实验设计与实验数据', question='怎样设计实验比较植物生长调节物质对葡萄增产的效果？', minutes=None,
         task='设计实验，通过文字或照片提供各组处理，获取对应处理的百粒质量。',
         fields=[field('design', '本组的实验设计', '写明各组分别用什么处理。也可拍照提交任务单。浓度、使用时间和部位不作要求。', required=False)],
         hints=[], prompts=[]),
@@ -86,7 +86,7 @@ OPENERS = {
 MATERIALS = [
     dict(id='grape-experiment', stage=1, kind='实验任务', title='比较葡萄的增产效果', source=SOURCE,
         paragraphs=['CPPU具有细胞分裂素活性，GA₃具有赤霉素活性。果园希望利用这些材料提高“火焰无籽”葡萄的产量。',
-                    '实验材料：CPPU、GA₃、蒸馏水等。植物生长调节剂的浓度、使用时间和部位不作要求。',
+                    '实验材料：CPPU、GA₃、蒸馏水等。植物生长调节物质的浓度、使用时间和部位不作要求。',
                     '先设计各组处理，再获取对应的百粒质量；结果引用课件提供的数据。'], assets=[], captions=[]),
     dict(id='grape-quality', stage=2, kind='实验结果', title='实验结果：果粒大小与品质的权衡', source='教师提供的两张实验结果图；《植物激素》课件第5—6页',
         paragraphs=['可溶性固形物包含糖等可溶性成分。百粒质量是果粒质量指标，不能单独证明整株或果园总产量增加。',

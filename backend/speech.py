@@ -13,6 +13,7 @@ from sqlalchemy import Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import qwen_speech
+from . import resilience
 
 logger = logging.getLogger(__name__)
 DEFAULT_STT_MODEL = 'qwen/qwen3-asr-0.6b'
@@ -60,14 +61,16 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
         provider=os.getenv('STT_PROVIDER','').strip().lower() or ('dashscope' if configured_model.startswith('qwen-audio-') else 'openrouter')
         if provider not in ('dashscope','openrouter'):raise HTTPException(503,'语音服务类型配置无效，请联系教师检查')
         api_key=(os.getenv('DASHSCOPE_API_KEY') or os.getenv('STT_API_KEY')) if provider=='dashscope' else (os.getenv('STT_API_KEY') or os.getenv('AI_API_KEY'))
-        if not api_key:raise HTTPException(503,'语音转写尚未配置，仍可打字输入')
+        use_backup = provider == 'dashscope' and resilience.enabled('STT')
+        if not api_key and not use_backup:raise HTTPException(503,'语音转写尚未配置，仍可打字输入')
         rate_limit(('classroom-stt',speaker),80,3600)
         running.add(speaker)
         model=configured_model or (qwen_speech.MODEL if provider=='dashscope' else DEFAULT_STT_MODEL)
         try:
             async with slots:
                 if provider=='dashscope':
-                    text=await qwen_speech.transcribe(audio,fmt,api_key,model)
+                    recognize = resilience.transcribe if use_backup else qwen_speech.transcribe
+                    text=await recognize(audio,fmt,api_key,model)
                 else:
                     async with httpx.AsyncClient(timeout=70) as client:
                         reply=await client.post((os.getenv('STT_BASE_URL') or os.getenv('AI_BASE_URL','https://openrouter.ai/api/v1')).rstrip('/')+'/audio/transcriptions',

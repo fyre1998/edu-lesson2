@@ -70,6 +70,7 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
         created: Mapped[int] = mapped_column(Integer, default=lambda:int(time.time()))
 
     grading_slots = asyncio.Semaphore(8)
+    grading_active = set()
     extracting = set()
 
     def picture_parts(session, ids, lesson_id, group_id, stage):
@@ -200,6 +201,15 @@ def install_extensions(router, Base, db, identity, check_group, File, Chat, uplo
                 await summary_hook(bind, lesson_id)
 
     async def evaluate_score(bind,version_id):
+        if version_id in grading_active:
+            return
+        grading_active.add(version_id)
+        try:
+            await evaluate_score_once(bind, version_id)
+        finally:
+            grading_active.discard(version_id)
+
+    async def evaluate_score_once(bind,version_id):
         async with grading_slots:
             with Session(bind) as s:
                 a=s.get(Assessment,version_id);v=s.get(Version,version_id)

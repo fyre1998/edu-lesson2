@@ -22,3 +22,12 @@ for(const ending of ['error','eof'])test(`partial ${ending} is never treated as 
   await assert.rejects(read(response([new TextEncoder().encode(text)]),t=>shown.push(t)),/重试/);
   assert.deepEqual(shown,['第一句。']);
 });
+
+test('buffered failover accepts keep-alives and a single confirmed answer without partial text',async()=>{
+  const shown=[];
+  const wire=': connected\n\n: keep-alive\n\n'+event('done',{id:6,answer:'备用线路生成的完整回复。'});
+  const result=await read(response([new TextEncoder().encode(wire)]),text=>shown.push(text));
+  assert.equal(result.id,6);
+  assert.equal(result.answer,'备用线路生成的完整回复。');
+  assert.deepEqual(shown,[]);
+});

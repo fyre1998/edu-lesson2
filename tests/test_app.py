@@ -13,6 +13,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv('APP_ORIGIN', 'http://testserver')
     monkeypatch.setenv('AI_API_KEY', '')
     monkeypatch.setenv('AI_MODEL', '')
+    monkeypatch.setenv('AI_FAILOVER_ENABLED', 'false')
+    monkeypatch.setenv('STT_FAILOVER_ENABLED', 'false')
     # Tests must not inherit paid speech credentials or routing from the local .env.
     monkeypatch.setenv('STT_PROVIDER', 'openrouter')
     monkeypatch.setenv('STT_MODEL', '')

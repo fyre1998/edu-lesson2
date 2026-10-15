@@ -60,6 +60,20 @@ python scripts/start_classroom_preview.py --foreground
 
 第二课速度优先配置为 `AI_MODEL=deepseek/deepseek-v4.1-flash`、`AI_REASONING_EFFORT=low`、`AI_MAX_TOKENS=8192`，用于图片识别、课堂对话、方案评分与教师汇总。固定使用 V4.1 Flash，不使用会随时间更新的 latest 别名。`AI_PROVIDER_SORT=throughput` 在 OpenRouter 上优先选择输出较快的服务商，同时保留严格 JSON 支持和服务商故障回退；留空沿用默认路由，其他接口不发送该参数。简单文字处理继续直接匹配课件数据，无需等待 AI。语音转写仍由 `STT_MODEL` 单独配置。
 
+## AI 自动备用线路
+
+启用 `AI_FAILOVER_ENABLED=true` 后，主模型故障时使用百炼直连 `AI_FALLBACK_MODEL=qwen3.8-flash`，只读取 `DASHSCOPE_API_KEY`。启用 `STT_FAILOVER_ENABLED=true` 后，千问官方语音故障时使用 OpenRouter 的 `STT_FALLBACK_MODEL=qwen/qwen3-asr-0.6b`；语音备用密钥可独立设置 `STT_FALLBACK_API_KEY`，留空使用 `AI_API_KEY`。两种服务的密钥不会互相发送。保持单进程单 worker 部署。
+
+故障切换按固定顺序串行尝试；同一上下文、图片、评分量规和请求编号贯穿全过程。备用不会收到主模型的失败片段。启用后，对话等待完整生成和校验，只发送最终确认的回复；网络中断后重试沿用同一请求编号。模型结果须通过 JSON Schema 校验，业务层继续校验实验条件和评分证据；评分以提交版本为唯一键，已完成评分不会因切换重算。备用模型若返回不合格 JSON，可在同一总时限内进行一次格式修复请求；原始上下文不变，不把失败内容加入历史。备用语音遇到临时网络错误、限流或服务端故障时可在同一总时限内重试一次。格式错误不触发全班线路暂停。两条线路统一使用 temperature=0 减少随机性，但不同模型的判断仍可能有差异，教师可以复核。
+
+连接超时为 4 秒。对话 10 秒未收到内容可转备用，每条线路完整生成最多 25 秒；图片识别、评分和汇总每条线路最多 40 秒；整次 AI 调用最多 85 秒。语音主线路按录音时长分配约 10–24 秒，备用最多 30 秒，两条线路合计最多 65 秒（录音解码另有 20 秒上限）。这些是截止时间，不是速度承诺；故障立刻返回时立即尝试备用。主备都失败时保留原记录并明确报错，不生成伪造结果。
+
+对话、结构化任务、语音分别记录故障线路。默认暂停 60 秒；可用带时区的 `AI_FAILOVER_HOLD_UNTIL` 将主线路的暂停延长到公开课结束后，例如 `2026-10-16T09:05:00+08:00`。暂停只由实际失败触发，正常主线路继续使用；备用本身失败仅暂停 60 秒。状态文件位于数据卷的 `ai-circuits.json`，重启仍保留，日期过后恢复常规冷却。日志 `ai_failover` 仅包含模型、请求追踪编号、尝试、耗时和状态，不记录学生内容或密钥。此文件和进程锁仅适用于当前单 worker，不能直接扩展为多副本。
+
+需要关闭自动备用时，将两项 `*_FAILOVER_ENABLED` 改为 `false` 并重新创建应用容器，即恢复原调用路径。模型服务冗余不替代数据库、网站入口和教室网络的保障。
+
+自动故障演练：`python -m pytest tests/test_resilience.py -q`。真实验收脚本为 `scripts/verify_ai_failover.py`，使用人工构造的图片/录音 JSON（`image`、`audio` 为 Base64），在独立临时数据库中运行六组看图、两轮对话、评分、汇总、语音和重复请求；`--force-backup` 只在该测试进程内模拟主服务故障。示例：`python scripts/verify_ai_failover.py --fixtures /path/to/synthetic-fixtures.json --output /path/to/report.json --force-backup`。真实验收会产生模型费用，禁止向正式课堂写入演练成果。
+
 ## 千问官方语音识别
 
 学生语音输入和教师图表口述共用 `/api/classroom/transcriptions`。在服务端 `.env` 配置：

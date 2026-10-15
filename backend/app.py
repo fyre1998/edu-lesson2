@@ -23,6 +23,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker,
 
 from .chat_stream import read_completion_stream
 from .database import create_database_engine
+from . import resilience
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / '.env')
@@ -320,7 +321,17 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
 
 
-async def call_ai(messages, *, json_output=False, response_schema=None, on_delta=None, max_tokens=None):
+async def call_ai(messages, *, json_output=False, response_schema=None, on_delta=None, max_tokens=None,
+                  response_validator=None):
+    if resilience.enabled('AI'):
+        return await resilience.call_ai(messages, origin=ORIGIN, json_output=json_output,
+            response_schema=response_schema, on_delta=on_delta, max_tokens=max_tokens,
+            response_validator=response_validator)
+    return await _call_ai_legacy(messages, json_output=json_output, response_schema=response_schema,
+                                 on_delta=on_delta, max_tokens=max_tokens)
+
+
+async def _call_ai_legacy(messages, *, json_output=False, response_schema=None, on_delta=None, max_tokens=None):
     key, model = os.getenv('AI_API_KEY'), os.getenv('AI_MODEL')
     if not key or not model:
         raise HTTPException(503, 'AI 尚未配置，请联系教师或管理员')

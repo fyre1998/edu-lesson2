@@ -29,3 +29,4 @@ tzdata==2026.3
 uvicorn==0.52.4
 websockets==15.0.1
 imageio-ffmpeg==0.6.0
+jsonschema==4.25.1

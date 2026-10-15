@@ -193,7 +193,8 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
                     raw = await call_ai([
                         {'role': 'system', 'content': summary_prompt},
                         {'role': 'user', 'content': json.dumps({'groups': groups}, ensure_ascii=False)}
-                    ], response_schema=summary_schema([g['group_id'] for g in groups]), max_tokens=SUMMARY_MAX_TOKENS)
+                    ], response_schema=summary_schema([g['group_id'] for g in groups]), max_tokens=SUMMARY_MAX_TOKENS,
+                        response_validator=lambda answer: validate_result(parse_json(answer), groups))
                     failure_stage = 'parse'
                     result = parse_json(raw)
                     failure_stage = 'validation'

@@ -199,6 +199,30 @@ def test_ai_total_deadline_stops_trickling_response_and_next_request_works(env, 
     assert [r['outcome'] for r in records] == ['timeout', 'success']
 
 
+def test_ai_per_request_budget_leaves_default_budget_unchanged(env, monkeypatch):
+    import asyncio
+    import json
+    module, _ = env
+    monkeypatch.setenv('AI_API_KEY', 'test-key')
+    monkeypatch.setenv('AI_MODEL', 'mock')
+    monkeypatch.setenv('AI_MAX_TOKENS', '8192')
+    real_client = httpx.AsyncClient
+    budgets = []
+
+    def handler(request):
+        budgets.append(json.loads(request.content)['max_tokens'])
+        return httpx.Response(200, json={'choices': [{'message': {'content': '完成'}}]})
+
+    monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+
+    async def run():
+        for budget in (None, 16384, None):
+            assert await module.call_ai([{'role': 'user', 'content': 'test'}], max_tokens=budget) == '完成'
+
+    asyncio.run(run())
+    assert budgets == [8192, 16384, 8192]
+
+
 def test_rate_limit_and_closed_registration(env, monkeypatch):
     module, client = env
     monkeypatch.setenv('ALLOW_REGISTRATION', 'false')

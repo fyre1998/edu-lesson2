@@ -320,13 +320,13 @@ class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
 
 
-async def call_ai(messages, *, json_output=False, response_schema=None, on_delta=None):
+async def call_ai(messages, *, json_output=False, response_schema=None, on_delta=None, max_tokens=None):
     key, model = os.getenv('AI_API_KEY'), os.getenv('AI_MODEL')
     if not key or not model:
         raise HTTPException(503, 'AI 尚未配置，请联系教师或管理员')
     try:
-        max_tokens = int(os.getenv('AI_MAX_TOKENS') or '8192')
-        if not 256 <= max_tokens <= 32768:
+        max_tokens = int(os.getenv('AI_MAX_TOKENS') or '8192') if max_tokens is None else max_tokens
+        if type(max_tokens) is not int or not 256 <= max_tokens <= 32768:
             raise ValueError()
     except ValueError:
         raise HTTPException(503, 'AI 输出额度配置无效，请联系管理员') from None

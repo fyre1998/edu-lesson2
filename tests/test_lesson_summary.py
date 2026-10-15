@@ -36,6 +36,9 @@ def transport(module, monkeypatch, summarizer, grader=scoring):
     def receive(req):
         body = json.loads(req.content)
         if 'overview' in body['response_format']['json_schema']['schema']['properties']:
+            assert body['max_tokens'] == 16384
+            if '最新葡萄增产方案' in body['messages'][0]['content']:
+                assert '每组恰好一条' in body['messages'][0]['content']
             payload = json.loads(body['messages'][1]['content'])
             calls.append(payload)
             answer = summarizer(payload)
@@ -139,7 +142,7 @@ def test_summary_retained_until_new_submission_evaluated_and_replaced(env, monke
 
 
 @pytest.mark.parametrize('failure', ['provider', 'invalid_evidence'])
-def test_processing_and_failed_summary_keep_last_complete_result_until_retry(env, monkeypatch, failure):
+def test_processing_and_failed_summary_keep_last_complete_result_until_retry(env, monkeypatch, failure, caplog):
     module, c = env; lid = start(c, monkeypatch, 2); student(c, 1)
     processing = []
     answers = []
@@ -163,6 +166,9 @@ def test_processing_and_failed_summary_keep_last_complete_result_until_retry(env
     failed = c.get(url).json()
     assert processing[-1] == ('processing', previous)
     assert failed['status'] == 'failed' and failed['result'] == previous
+    records = [r.getMessage() for r in caplog.records if r.getMessage().startswith('design_summary_failed ')]
+    assert records and ('stage=request' if failure == 'provider' else 'reason=ungrounded evidence') in records[-1]
+    assert '没有出现过的原文' not in records[-1] and '分别收集并比较两侧' not in records[-1]
     assert c.get(url).json()['result'] == previous
     assert len(calls) == 2
     assert c.post(url + '/retry').status_code == 200

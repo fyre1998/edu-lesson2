@@ -1,6 +1,7 @@
 """Teacher-only, evidence-linked summaries of each group's latest submitted design."""
 import hashlib
 import json
+import logging
 import time
 from types import SimpleNamespace
 
@@ -13,7 +14,9 @@ from .lesson_curricula import curriculum as curriculum_for, INQUIRY_FLOWS, GRAPE
 from .ai_schemas import object_schema
 from .lesson_v2 import parse_json
 
-SUMMARY_VERSION = 'teacher-design-deficiencies-4'
+SUMMARY_VERSION = 'teacher-design-deficiencies-5'
+SUMMARY_MAX_TOKENS = 16384  # Allow reasoning plus a separate evidence quote for every affected group.
+logger = logging.getLogger('uvicorn.error')
 
 PROMPT = '''你是高中生物教师的课堂观察助手，逐组检查本次水稻突变体实验设计，汇总方案中实际存在的不足，供教师阅读、判断和点评。
 这是给教师看的设计诊断，不是给学生的提问清单、探究题或课堂讨论题。所有结论用简短、明确的陈述句。
@@ -45,6 +48,7 @@ def grape_summary_prompt(flow_version=4):
 """ + focus + """不要求琼脂或水稻突变体实验，也不要求再设计实验对照。
 接受合理不同选择，不把特定激素组合当唯一答案；不因缺少浓度、具体时长、处理部位扣分。百粒质量不是总产量，幼苗低温证据不能直接证明花期坐果机制。
 最多8类不足，保留有依据的共性和个别问题。每类title不超过22字、detail不超过50字、suggestion不超过40字，用简短陈述句；group_ids准确列出涉及的小组。
+每类的evidence必须与group_ids逐组一一对应：涉及几组就提供几条证据，每组恰好一条，各自引用该组原文。不能只用一组的代表性证据代替其他组；找不到该组证据就不能将它列入group_ids。输出前逐项检查组号集合及条数完全一致。
 """ + common
 
 
@@ -56,7 +60,9 @@ def summary_schema(groups):
             'title': {'type': 'string', 'minLength': 1, 'maxLength': 22},
             'detail': {'type': 'string', 'minLength': 1, 'maxLength': 50},
             'group_ids': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': gid},
-            'evidence': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': object_schema({
+            'evidence': {'type': 'array', 'minItems': 1, 'maxItems': 8,
+                         'description': '与group_ids逐组一一对应，每组恰好一条该组原文证据，不得只给代表性小组的证据。',
+                         'items': object_schema({
                 'group_id': gid, 'quote': {'type': 'string', 'minLength': 4, 'maxLength': 220}})},
             'suggestion': {'type': 'string', 'minLength': 1, 'maxLength': 40},
         })},
@@ -182,16 +188,24 @@ def install_summary(router, Base, db, identity, teacher, get_lesson, config,
                     session.commit()
                     if not groups:
                         return
+                failure_stage = 'request'
                 try:
                     raw = await call_ai([
                         {'role': 'system', 'content': summary_prompt},
                         {'role': 'user', 'content': json.dumps({'groups': groups}, ensure_ascii=False)}
-                    ], response_schema=summary_schema([g['group_id'] for g in groups]))
-                    result = validate_result(parse_json(raw), groups)
+                    ], response_schema=summary_schema([g['group_id'] for g in groups]), max_tokens=SUMMARY_MAX_TOKENS)
+                    failure_stage = 'parse'
+                    result = parse_json(raw)
+                    failure_stage = 'validation'
+                    result = validate_result(result, groups)
                     result['sources'] = [dict(group_id=g['group_id'], version_id=g['version_id'],
                                               revision=g['revision']) for g in groups]
                     status = 'ready'
-                except Exception:
+                except Exception as error:
+                    # Validation messages are fixed labels; never log student work or model output.
+                    reason = str(error) if failure_stage == 'validation' and type(error) is ValueError else ''
+                    logger.warning('design_summary_failed lesson_id=%s stage=%s error_type=%s reason=%s',
+                                   lesson_id, failure_stage, type(error).__name__, reason)
                     result, status = {}, 'failed'
                 with Session(bind) as session:
                     lesson = session.get(Lesson, lesson_id)

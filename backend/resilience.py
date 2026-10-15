@@ -28,6 +28,7 @@ from . import qwen_speech
 logger = logging.getLogger('uvicorn.error')
 _lock = threading.Lock()
 _circuits = {}
+_circuit_versions = {}  # In-flight recovery must not erase a newer failure.
 
 
 class InvalidModelResult(ValueError):
@@ -72,6 +73,37 @@ def available(lane, route):
         return _state().get(_key(lane, route), 0) <= time.time()
 
 
+def _persist(state, lane):
+    # Caller holds _lock so recovery and failures cannot overwrite one another.
+    path = _path()
+    temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(state), encoding='utf-8')
+        os.replace(temporary, path)
+    except OSError:
+        logger.error('ai_circuit_persistence_failed lane=%s', lane)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _circuit_version(lane, route):
+    with _lock:
+        return _circuit_versions.get((_path(), _key(lane, route)), 0)
+
+
+def _recover(lane, route, version):
+    with _lock:
+        key = _key(lane, route)
+        if _circuit_versions.get((_path(), key), 0) == version:
+            state = _state()
+            state.pop(key, None)
+            _persist(state, lane)
+
+
 def trip(lane, route, *, primary):
     until = time.time() + seconds('AI_FAILOVER_COOLDOWN_SECONDS', 60)
     # Hold a failed primary through the public lesson; a failed backup gets only
@@ -88,19 +120,9 @@ def trip(lane, route, *, primary):
         state = _state()
         key = _key(lane, route)
         state[key] = max(state.get(key, 0), until)
-        path = _path()
-        temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary.write_text(json.dumps(state), encoding='utf-8')
-            os.replace(temporary, path)
-        except OSError:
-            logger.error('ai_circuit_persistence_failed lane=%s', lane)
-        finally:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+        version_key = (_path(), key)
+        _circuit_versions[version_key] = _circuit_versions.get(version_key, 0) + 1
+        _persist(state, lane)
 
 
 def retryable(error):
@@ -114,18 +136,26 @@ def retryable(error):
 async def attempt_routes(lane, routes, invoke, *, total):
     deadline = time.monotonic() + total
     request_id = uuid.uuid4().hex
-    for index, (route_id, model) in enumerate(routes):
-        if not available(lane, route_id):
+    plan = list(enumerate(routes))
+    tried = set()
+    emergency = False
+    for index, (route_id, model) in plan:
+        if index in tried or (not available(lane, route_id) and not (emergency and index == 0)):
             continue
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
+        tried.add(index)
+        version = _circuit_version(lane, route_id)
         started = time.monotonic()
         try:
             async with asyncio.timeout(remaining):
                 result = await invoke(index)
+            if emergency and index == 0:
+                _recover(lane, route_id, version)
             logger.info('ai_failover %s', json.dumps(dict(request_id=request_id, lane=lane,
-                attempt=index, model=model, outcome='success', elapsed_ms=round((time.monotonic()-started)*1000))))
+                attempt=index, model=model, outcome='success', emergency=emergency,
+                elapsed_ms=round((time.monotonic()-started)*1000))))
             return result
         except asyncio.CancelledError:
             raise  # Browser cancellation must not start another paid request.
@@ -143,6 +173,11 @@ async def attempt_routes(lane, routes, invoke, *, total):
             # Do not disable a healthy route for all other classroom groups.
             if isinstance(error, (httpx.TransportError, httpx.HTTPStatusError, TimeoutError, HTTPException)):
                 trip(lane, route_id, primary=index == 0)
+            # A healthy backup keeps the primary on hold. Only an actual backup
+            # failure permits one recovery attempt, still inside this deadline.
+            if index == 1 and 0 not in tried:
+                emergency = True
+                plan.append((0, routes[0]))
     raise HTTPException(503, '主用和备用 AI 暂时未能完成请求，原有记录已保留，请稍后重试')
 
 

@@ -133,7 +133,8 @@ def test_bad_request_does_not_trip_or_switch_and_cooldown_expires(env, monkeypat
     assert r.available('speech', 'test')
 
 
-def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkeypatch):
+@pytest.mark.parametrize('emergency', [False, True])
+def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkeypatch, emergency):
     module, c = env; lid = start(c, monkeypatch, 2); configure(monkeypatch)
     monkeypatch.setenv('AI_FIRST_CONTENT_SECONDS', '2')
     monkeypatch.setenv('AI_CHAT_ATTEMPT_SECONDS', '5')
@@ -142,7 +143,7 @@ def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkey
     real = httpx.AsyncClient; requests = []; failed = False
     async def upstream(req):
         body = json.loads(req.content); requests.append((req.url.host, body))
-        if failed and req.url.host == 'openrouter.ai':
+        if failed and req.url.host == ('dashscope.aliyuncs.com' if emergency else 'openrouter.ai'):
             await asyncio.sleep(.02)  # All six enter the failing route together.
             return httpx.Response(503)
         properties = body['response_format']['json_schema']['schema']['properties']
@@ -158,6 +159,10 @@ def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkey
         seed = c.post('/api/classroom/chats', json={'lesson_id': lid, 'stage': 2,
             'message': f'本组历史标记GROUP{group}', 'request_id': str(uuid.uuid4())})
         assert seed.status_code == 201, seed.text
+    requests.clear()
+    if emergency:
+        for lane in ('chat', 'structured'):
+            r.trip(lane, 'https://openrouter.ai/api/v1/deepseek/test', primary=True)
     failed = True
 
     async def run():
@@ -185,7 +190,7 @@ def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkey
                 assert (await client.post(f'/api/classroom/lessons/{lid}/assessments/{vid}/retry')).status_code == 409
         await asyncio.gather(*(group_job(g) for g in range(1, 7)))
     asyncio.run(run())
-    backups = [body for host, body in requests if host == 'dashscope.aliyuncs.com']
+    backups = [body for host, body in requests if host == ('openrouter.ai' if emergency else 'dashscope.aliyuncs.com')]
     chats = [body for body in backups if body.get('stream')]
     assert len(chats) == 6
     for body in chats:
@@ -200,6 +205,9 @@ def test_six_groups_retry_chats_and_scores_exactly_once_with_context(env, monkey
         assert db.execute(text("select count(*) from lesson_chat_requests where result='' ")).scalar() == 0
         assert db.execute(text('select count(*) from lesson_work_versions')).scalar() == 6
         assert db.execute(text("select count(*) from lesson_assessments where status='ready' ")).scalar() == 6
+    if emergency:
+        r._circuits.clear()
+        assert all(r.available(lane, 'https://openrouter.ai/api/v1/deepseek/test') for lane in ('chat', 'structured'))
 
 
 def test_six_speech_requests_fallback_and_replay_without_new_transcription(env, monkeypatch):
@@ -333,3 +341,67 @@ def test_grounding_validation_can_switch_and_repair_before_any_result_is_returne
         {'role':'user','content':'original input'}],response_schema=GUIDANCE_SCHEMA,response_validator=validate))
     assert json.loads(answer)==ANSWER and len(calls)==3
     assert r.available('structured','https://openrouter.ai/api/v1/deepseek/test')
+
+
+@pytest.mark.parametrize('lane', ['chat', 'structured', 'speech'])
+def test_held_primary_recovers_only_after_backup_failure(env, monkeypatch, lane):
+    configure(monkeypatch)
+    routes = [('primary', 'main-model'), ('backup', 'backup-model')]
+    calls = []
+    mode = 'primary_down'
+    async def invoke(index):
+        calls.append(index)
+        if (mode == 'primary_down' and index == 0) or (mode == 'backup_down' and index == 1):
+            raise HTTPException(503, 'synthetic failure')
+        return 'complete'
+    def run():
+        return asyncio.run(r.attempt_routes(lane, routes, invoke, total=1))
+    assert run() == 'complete' and calls == [0, 1]
+    assert not r.available(lane, 'primary')
+    calls.clear()
+    assert run() == 'complete' and calls == [1]  # No probe while backup is healthy.
+    mode = 'backup_down'
+    calls.clear()
+    assert run() == 'complete' and calls == [1, 0]
+    r._circuits.clear()  # Recovery is durable across worker restarts.
+    assert r.available(lane, 'primary') and not r.available(lane, 'backup')
+    calls.clear()
+    assert run() == 'complete' and calls == [0]
+
+
+@pytest.mark.parametrize('failure', ['down', 'deadline', 'cancel'])
+def test_emergency_recovery_remains_bounded_and_respects_cancellation(env, monkeypatch, failure):
+    configure(monkeypatch)
+    routes = [('primary', 'main-model'), ('backup', 'backup-model')]
+    r.trip('chat', 'primary', primary=True)
+    calls = []
+    async def invoke(index):
+        calls.append(index)
+        if failure == 'cancel':
+            raise asyncio.CancelledError()
+        if failure == 'deadline':
+            await asyncio.sleep(5)
+        raise HTTPException(503, 'synthetic failure')
+    with pytest.raises(asyncio.CancelledError if failure == 'cancel' else HTTPException):
+        asyncio.run(r.attempt_routes('chat', routes, invoke, total=.04))
+    assert calls == ([1, 0] if failure == 'down' else [1])
+    assert not r.available('chat', 'primary')
+    if failure != 'cancel':
+        count = len(calls)
+        with pytest.raises(HTTPException):
+            asyncio.run(r.attempt_routes('chat', routes, invoke, total=.04))
+        assert len(calls) == count  # Both circuits stay paused; no retry storm.
+
+
+def test_emergency_success_does_not_clear_a_concurrent_newer_failure(env, monkeypatch):
+    configure(monkeypatch)
+    r.trip('chat', 'primary', primary=True)
+    async def invoke(index):
+        if index == 1:
+            raise HTTPException(503, 'backup down')
+        # Another in-flight request observed a failure after this recovery began.
+        r.trip('chat', 'primary', primary=True)
+        return 'complete'
+    assert asyncio.run(r.attempt_routes('chat', [('primary', 'main'), ('backup', 'backup')], invoke, total=1)) == 'complete'
+    r._circuits.clear()
+    assert not r.available('chat', 'primary')

@@ -87,7 +87,7 @@ def test_default_curriculum_has_gated_current_assets_and_no_early_results(env, m
     for phrase in ['10 mg/L', '25 mg/L', '一个生长季', '葡萄果穗']:
         assert phrase in rendered
     assert '170' not in rendered and '320' not in rendered and 'grape-relations' not in rendered
-    path = f'/api/classroom/lessons/{lid}/materials/grape-relations/assets/grape-1002-hormones.png'
+    path = f'/api/classroom/lessons/{lid}/materials/grape-cases/assets/grape-1015-cases.png'
     assert c.get(path).status_code == 403
     assert c.get(f'/api/classroom/lessons/{lid}/teaching-guide').status_code == 403
     classroom_login(c, teacher=True)
@@ -101,6 +101,7 @@ def test_default_curriculum_has_gated_current_assets_and_no_early_results(env, m
     student(c, 6)
     stage = c.get(f'/api/classroom/lessons/{lid}/stages/2').json()
     assert len(stage['content']['fields']) == 1
+    assert 'grape-relations' not in {m['id'] for m in stage['materials']}
     for material in stage['materials']:
         for image in material['images']:
             response = c.get(image['url'])

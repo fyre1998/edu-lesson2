@@ -711,6 +711,9 @@ def install_lesson_routes(router, Base, db, identity, check_group, File, Chat, C
     from .lesson_matching import install_matching
     matching = install_matching(router, Base, db, identity, check_group, get_lesson, config,
         Version, extensions.picture_parts, call_ai, ASSETS, WRITE_LOCK)
+    from .teacher_analysis import install_teacher_analysis
+    install_teacher_analysis(router, Base, db, identity, teacher, get_lesson, config,
+                             Version, matching, extensions, call_ai, WRITE_LOCK)
     return SimpleNamespace(extensions=extensions, config=config, group_exists=group_exists, Lesson=Lesson, FileContext=FileContext, ChatContext=ChatContext,
                            login_group_count=login_group_count, migrate_current_group_count=migrate_current_group_count,
                            repair_released_results=repair_released_results,

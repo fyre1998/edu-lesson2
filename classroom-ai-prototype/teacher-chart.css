@@ -10,8 +10,24 @@
 .teacher-chart-status{margin:12px 0 0;min-height:1.5em;color:var(--muted);font-size:.82rem;line-height:1.6;overflow-wrap:anywhere}
 .teacher-chart-status.is-loading::before{content:"";display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;vertical-align:-2px;animation:teacher-chart-spin .9s linear infinite}
 .teacher-chart-result{margin:18px 0 0;border-top:1px solid var(--line);padding-top:18px}
-.teacher-chart-result a{display:block;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:white}
-.teacher-chart-result img{display:block;width:100%;height:auto}
-.teacher-chart-result figcaption{margin-top:8px;color:var(--muted);font-size:.78rem;text-align:right}
+.teacher-chart-result h3{margin:4px 0 12px;font-size:1.15rem;line-height:1.5}
+.teacher-chart-toolbar{display:flex;justify-content:flex-end;margin-bottom:8px}
+.teacher-analysis-message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
+.teacher-analysis-observations{padding-left:1.4em;line-height:1.8}
+.teacher-chart-scroll{max-width:100%;overflow-x:auto;margin:20px 0 8px;background:#fff;border:1px solid var(--line);border-radius:12px}
+.teacher-chart-scroll svg{display:block;max-width:none;min-width:100%;height:auto;font-family:inherit}
+.teacher-chart-scroll svg.chart-compact{width:100%;min-width:360px}
+.chart-grid{stroke:#e2e9e1;stroke-width:1}
+.chart-tick,.chart-label,.chart-unit{fill:#53634f;font-size:14px}
+.chart-value{fill:#263d29;font-size:16px;font-weight:600}
+.chart-color-0{fill:#71936d}.chart-color-1{fill:#b1bb7d}.chart-color-2{fill:#c7a474}.chart-color-3{fill:#809eaa}
+.chart-error{stroke:#465943;stroke-width:1.5;fill:none}
+.teacher-chart-table{max-width:100%;overflow-x:auto;margin-top:14px}
+.teacher-chart-table table{border-collapse:collapse;width:100%;font-size:.9rem}
+.teacher-chart-table th,.teacher-chart-table td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;line-height:1.5}
+.teacher-chart-table tbody th{font-weight:400}.teacher-chart-table td{font-variant-numeric:tabular-nums;white-space:nowrap}
+.teacher-chart-result:fullscreen{box-sizing:border-box;width:100%;height:100%;margin:0;padding:36px clamp(24px,5vw,96px);background:#f9fbf6;color:#263d29;overflow:auto;font-size:1.3rem}
+.teacher-chart-result:fullscreen h3{font-size:2rem}.teacher-chart-result:fullscreen .teacher-chart-table table{font-size:1.3rem}
+.teacher-chart-result:fullscreen .teacher-chart-scroll{max-width:1100px;margin:24px auto}
 @keyframes teacher-chart-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.teacher-chart-status.is-loading::before{animation:none}}

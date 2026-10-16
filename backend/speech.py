@@ -36,8 +36,8 @@ def install_speech(router, Base, db, identity, lesson_api, rate_limit):
         if user.role not in ('student','teacher'):raise HTTPException(403,'请使用小组或教师身份录音')
         lesson=lesson_api.get(session,lesson_id,stage,write=True)
         if user.role=='teacher':
-            if lesson_api.config(lesson)[0] not in (4,5) or stage!=1:
-                raise HTTPException(403,'教师语音输入仅用于葡萄实验的第一环节')
+            if lesson_api.config(lesson)[0] not in (4,5) or stage not in (1,2):
+                raise HTTPException(403,'教师语音输入仅用于葡萄课程的数据助手')
             speaker=f'teacher:{user.name}'
         else:
             lesson_api.group_exists(lesson,user.group_id)

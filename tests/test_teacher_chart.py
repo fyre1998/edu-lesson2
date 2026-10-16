@@ -38,12 +38,12 @@ def test_teacher_dictation_identity_cache_and_lesson_boundaries(env, monkeypatch
     assert transcribe().status_code == 403
     classroom_login(client, teacher=True)
     assert client.patch(f"/api/classroom/lessons/{lesson['id']}", json={'stage': 2}).status_code == 200
-    assert transcribe(stage='2').status_code == 403
+    assert transcribe(stage='2').status_code == 200
     assert client.patch(f"/api/classroom/lessons/{lesson['id']}", json={'status': 'archived'}).status_code == 200
     assert transcribe().status_code == 409
-    assert len(calls) == 3
+    assert len(calls) == 4
     with module.engine.connect() as connection:
-        assert connection.execute(text('select count(*) from classroom_transcriptions')).scalar() == 3
+        assert connection.execute(text('select count(*) from classroom_transcriptions')).scalar() == 4
         for table in ('classroom_files', 'classroom_chats', 'lesson_work_versions'):
             assert connection.execute(text(f'select count(*) from {table}')).scalar() == 0
 

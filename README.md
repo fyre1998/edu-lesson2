@@ -76,7 +76,7 @@ python scripts/start_classroom_preview.py --foreground
 
 ## 千问官方语音识别
 
-学生语音输入和教师图表口述共用 `/api/classroom/transcriptions`。在服务端 `.env` 配置：
+学生语音输入和教师数据助手口述共用 `/api/classroom/transcriptions`。教师在两个环节均可语音或打字提出要求，再点击“执行指令”；`/api/classroom/lessons/{lesson_id}/teacher-analysis` 使用现有课堂 AI 识别要求，汇总各组最新结果，生成柱状图、表格或文字总结。页面只呈现汇总，不标注数据来源；图表数值由服务器核对提取。无需新增模型密钥。在服务端 `.env` 配置语音：
 
 ```dotenv
 STT_PROVIDER=dashscope

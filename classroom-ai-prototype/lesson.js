@@ -837,8 +837,9 @@ $('#voiceStop').addEventListener('click',()=>lessonVoice.stop());$('#voiceCancel
 $('#workFields').addEventListener('click',handleFieldVoiceClick);
 $('#chatUpload').addEventListener('click',()=>choosePicture(pictureTarget()));$('#chatCamera').addEventListener('click',()=>choosePicture(pictureTarget(),true));$('#chatSubmit').addEventListener('click',()=>{if(!busy())submitFinalWork();});
 globalThis.teacherChart=createTeacherChart({
-  getContext:()=>isTeacher()&&isGrape()&&S.stage===1?`${S.user.name}:${S.lesson.id}:${S.stage}`:'',
+  getContext:()=>isTeacher()&&isGrape()?`${S.user.name}:${S.lesson.id}:${S.stage}`:'',
   canEdit:()=>S.lesson?.status==='live',
+  analyze:(body,signal)=>api(base()+'/teacher-analysis',{method:'POST',body:{...body,stage:S.stage},signal}),
   transcribe:async(blob,context,signal)=>{const body=new FormData();body.append('file',blob,'speech');body.append('lesson_id',S.lesson.id);body.append('stage',S.stage);body.append('request_id',crypto.randomUUID());return (await api('/transcriptions',{method:'POST',body,signal})).text;}
 });
 boot();setInterval(poll,5000);setInterval(pollSubmission,1000);

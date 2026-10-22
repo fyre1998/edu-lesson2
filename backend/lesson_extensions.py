@@ -18,6 +18,7 @@ from . import lesson_v3 as v3
 from .lesson_curricula import curriculum as curriculum_for, scoring_rules, INQUIRY_FLOWS, GRAPE_FLOWS
 from .ai_schemas import EXTRACTION_SCHEMA, grading_schema
 from .student_feedback import student_feedback
+from .teacher_rubrics import GRAPE_SOLO
 
 
 class ExtractInput(BaseModel):
@@ -386,8 +387,11 @@ improvements全次只选最值得先改的1至2点，按重要性排序；每条
         teacher(user, read_only=True);lesson=get_lesson(session,lesson_id)
         if config(lesson)[0] in GRAPE_FLOWS:
             current = curriculum_for(config(lesson)[0])
-            return dict(prompts={k:current.guide(k) for k in current.STAGES}, rubric=current.RUBRIC,
-                        version=current.RUBRIC_VERSION, matching=current.RESULTS)
+            guide = dict(prompts={k:current.guide(k) for k in current.STAGES}, rubric=current.RUBRIC,
+                         version=current.RUBRIC_VERSION, matching=current.RESULTS)
+            if config(lesson)[0] == 5:
+                guide['rubric_display'] = GRAPE_SOLO
+            return guide
         if config(lesson)[0] == 3:
             return dict(prompts={k:v3.guide(k) for k in v3.STAGES}, rubric={k:v3.grading_rubric(k) for k in v3.RUBRIC},
                         version=v3.RUBRIC_VERSION, matching={k: value[0] for k,value in v3.RESULTS.items()})

@@ -1,0 +1,29 @@
+.teaching-guide-dialog{width:min(1640px,96vw);max-width:none;padding:24px;max-height:94dvh}
+.teaching-guide-dialog[open]{display:flex;flex-direction:column;overflow:hidden}
+.teaching-guide-dialog>.panel-heading{flex:none;border-bottom:1px solid var(--line);padding-bottom:16px}
+#teachingGuideBody{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 6px 4px 0}
+#teachingGuideBody pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.85rem}
+.solo-rubric h3{font-size:1.18rem;margin:0 0 10px}
+.solo-description{max-width:1100px;margin-bottom:8px}
+.solo-table-scroll{max-height:62dvh;overflow:auto;border:1px solid var(--line);border-radius:12px;overscroll-behavior:contain}
+.solo-table{width:100%;min-width:1180px;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:.9rem;line-height:1.8}
+.solo-table th,.solo-table td{padding:16px 14px;text-align:left;vertical-align:top;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.solo-table tr>:last-child{border-right:0}
+.solo-table tbody tr:last-child>*{border-bottom:0}
+.solo-table thead th{position:sticky;top:0;z-index:2;background:#eaf2ed;color:#224f3e;font-size:.94rem}
+.solo-table thead th:first-child{width:180px;left:0;z-index:3}
+.solo-table thead span{display:block;font-size:.86rem;font-weight:500;margin-top:4px}
+.solo-table tbody th{position:sticky;left:0;z-index:1;background:#f3f7f4;font-weight:600}
+.solo-table tbody th strong{display:block;color:var(--green);font-size:1.12rem;margin-top:4px}
+.solo-table tbody th small{display:block;font-weight:400;margin-top:8px;line-height:1.6}
+.solo-table tbody td{background:white}
+.solo-table tbody tr:nth-child(even) td{background:#fafcfb}
+.solo-notes{margin:20px 0;padding:16px 20px;background:#f3f7f4;border-radius:12px}
+.solo-notes h4{margin:0 0 8px;font-size:.95rem}
+.solo-notes ul{padding-left:22px;margin:0;font-size:.88rem;line-height:1.8}
+.solo-notes li+li{margin-top:5px}
+.teaching-guide-reference{border-top:1px solid var(--line);padding-top:18px;margin-top:22px}
+.teaching-guide-reference details{padding:10px 0}
+.teaching-guide-reference summary{cursor:pointer;font-weight:600}
+.teaching-guide-reference pre{margin:12px 0}
+@media(max-width:600px){.teaching-guide-dialog{width:calc(100vw - 16px);padding:16px}.teaching-guide-dialog h2{font-size:1.1rem}.solo-table thead th:first-child{width:145px}.solo-table{min-width:1120px}.solo-notes{padding:14px}}

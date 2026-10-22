@@ -126,6 +126,14 @@ function editScore(id){
   const score=S.groups.find(g=>g.id===S.group)?.scores?.stages.find(s=>s.version_id===id);if(!score)return;
   $('#scoreVersion').value=id;$('#scoreFields').innerHTML=score.items.map(i=>`<label>${esc(i.label)}（0–${i.maximum}）<input type="number" min="0" max="${i.maximum}" step="1" required data-score-key="${i.key}" value="${i.points??0}"></label>`).join('');$('#scoreReason').value='';$('#scoreDialog').showModal();
 }
+function teachingRubricHTML(guide){
+  const rubric=guide.rubric_display;
+  if(!rubric)return `<h3>评分量规</h3><pre>${esc(JSON.stringify(guide.rubric,null,2))}</pre>`;
+  return `<section class="solo-rubric" aria-labelledby="soloRubricTitle"><h3 id="soloRubricTitle">${esc(rubric.title)}</h3><p class="solo-description">${esc(rubric.description)}</p><p class="fine">表内各档分值均按20分项目计算；可左右滚动查看完整量表。</p><div class="solo-table-scroll" tabindex="0" role="region" aria-label="SOLO评分量表，可左右滚动"><table class="solo-table"><caption class="sr-only">${esc(rubric.title)}</caption><thead><tr><th scope="col">评价维度及分值</th>${rubric.levels.map(level=>`<th scope="col">${esc(level.label)}<span>${esc(level.range)}</span></th>`).join('')}</tr></thead><tbody>${rubric.dimensions.map(row=>`<tr><th scope="row">${esc(row.label)}<strong>${esc(row.maximum)}分</strong>${row.allocation?`<small>${esc(row.allocation)}</small>`:''}</th>${row.criteria.map(text=>`<td>${esc(text)}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="solo-notes"><h4>评分说明</h4><ul>${rubric.notes.map(note=>`<li>${esc(note)}</li>`).join('')}</ul></div></section>`;
+}
+function teachingGuideHTML(guide){
+  return teachingRubricHTML(guide)+`<section class="teaching-guide-reference"><h3>教学提示词与参考资料</h3>${Object.entries(guide.prompts).map(([stage,p])=>`<details><summary>环节 ${esc(stage)} 提示词</summary><pre>${esc(p)}</pre></details>`).join('')}${guide.went_original?`<details><summary>温特原始提示词</summary><pre>${esc(guide.went_original)}</pre></details>`:''}${guide.matching?`<details><summary>${isGrape()?'百粒质量数据表':'教师原图匹配表'}</summary><pre>${esc(JSON.stringify(guide.matching,null,2))}</pre></details>`:''}</section>`;
+}
 function installWidgets(){
   installScoreBubble();
   installPictureEvents();
@@ -144,5 +152,6 @@ function installWidgets(){
   $('#groupDetail').addEventListener('click',async e=>{const edit=e.target.closest('[data-score-edit]'),retry=e.target.closest('[data-score-retry]');if(edit)editScore(edit.dataset.scoreEdit);if(retry)try{await api(base()+`/assessments/${retry.dataset.scoreRetry}/retry`,{method:'POST'});toast('已请求重新评分');await poll();}catch(err){toast(err.message);}});
   $('#scoreCancel').addEventListener('click',()=>$('#scoreDialog').close());
   $('#scoreForm').addEventListener('submit',async e=>{e.preventDefault();try{await api(base()+`/assessments/${$('#scoreVersion').value}`,{method:'PUT',body:{points:Object.fromEntries($$('[data-score-key]').map(i=>[i.dataset.scoreKey,Number(i.value)])),reason:$('#scoreReason').value}});$('#scoreDialog').close();await poll();await refreshEvents();}catch(err){toast(err.message);}});
-  $('#teachingGuide').addEventListener('click',async()=>{try{const guide=await api(base()+'/teaching-guide');$('#historyBody').innerHTML=Object.entries(guide.prompts).map(([stage,p])=>`<details><summary>环节 ${stage} 提示词</summary><pre>${esc(p)}</pre></details>`).join('')+`${guide.went_original?`<details><summary>温特原始提示词</summary><pre>${esc(guide.went_original)}</pre></details>`:''}${guide.matching?`<h3>${isGrape()?'百粒质量数据表':'教师原图匹配表'}</h3><pre>${esc(JSON.stringify(guide.matching,null,2))}</pre>`:''}<h3>评分量规</h3><pre>${esc(JSON.stringify(guide.rubric,null,2))}</pre>`;$('#historyDialog').showModal();}catch(e){toast(e.message);}});
+  $('#teachingGuide').addEventListener('click',async()=>{try{const guide=await api(base()+'/teaching-guide');$('#teachingGuideBody').innerHTML=teachingGuideHTML(guide);$('#teachingGuideDialog').showModal();$('#teachingGuideBody').scrollTop=0;}catch(e){toast(e.message);}});
+  $('#closeTeachingGuide').addEventListener('click',()=>$('#teachingGuideDialog').close());
 }

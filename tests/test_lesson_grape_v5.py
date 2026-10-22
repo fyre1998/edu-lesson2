@@ -181,6 +181,27 @@ def test_new_grading_history_summary_and_guidance(env, monkeypatch):
         'points': {'treatment': 35, 'adaptation': 20, 'effect': 20, 'environment': 20}, 'reason': '依据本次方案复核'}).status_code == 200
     assert work(c, lid, 2)['scores']['total'] == 95
 
+    # Opening the teacher reference must not regrade, rewrite feedback/snapshots,
+    # or change a teacher correction, including earlier submission versions.
+    def saved_assessments():
+        with module.engine.connect() as db:
+            return [tuple(row) for row in db.execute(text('SELECT * FROM lesson_assessments ORDER BY version_id'))]
+
+    before = saved_assessments()
+    scores_before = work(c, lid, 2)['scores']
+    call_count = len(calls)
+    for _ in range(2):
+        guide = c.get(f'/api/classroom/lessons/{lid}/teaching-guide').json()
+        assert guide['version'] == grape.RUBRIC_VERSION
+        assert guide['rubric']['2'] == [list(row) for row in grape.RUBRIC[2]]
+        assert [row['maximum'] for row in guide['rubric_display']['dimensions']] == [40, 20, 20, 20]
+    assert saved_assessments() == before
+    assert work(c, lid, 2)['scores'] == scores_before
+    assert len(calls) == call_count
+    student(c, 1)
+    assert c.get(f'/api/classroom/lessons/{lid}/teaching-guide').status_code == 403
+    assert 'rubric_display' not in work(c, lid, 2)
+
 
 @pytest.mark.parametrize('key', ['adaptation', 'effect', 'environment'])
 def test_twenty_point_dimensions_reject_excess_ai_and_teacher_marks(env, monkeypatch, key):
